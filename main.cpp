@@ -1,8 +1,21 @@
 #include <stdio.h>
+#include <gpiod.h>
 
 int main(const char* argc, int argv)
 {
-	printf("hello world");
+	const char chipName[] = "gpiochip0";
+	uint32_t lineNum = 12;
+	uint32_t value = 0;
+	
+	gpiod_chip* pChip = nullptr;
+	gpiod_line* pLine = nullptr;
+	
+	pChip = gpiod_chip_open_by_name(chipName);
+	if(!pChip)
+	{
+		printf("open chip failed");
+		return 0;
+	}
 	
 	return 0;
 }
