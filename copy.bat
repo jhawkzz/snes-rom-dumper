@@ -1,0 +1,1 @@
+scp -r ./ jered@192.168.50.148:~/git/snes-rom-dumper/
