@@ -1,11 +1,11 @@
 #include <stdio.h>
 #include <gpiod.h>
 
-int main(const char* argc, int argv)
+int main(int argc, const char* argv)
 {
 	const char chipName[] = "gpiochip0";
-	uint32_t lineNum = 12;
-	uint32_t value = 0;
+	int lineNum = 12;
+	int value = 0;
 	
 	gpiod_chip* pChip = nullptr;
 	gpiod_line* pLine = nullptr;
