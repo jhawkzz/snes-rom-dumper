@@ -1,0 +1,1 @@
+replace gpio literal calls with my new object
