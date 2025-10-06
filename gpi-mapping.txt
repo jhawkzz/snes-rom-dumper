@@ -16,7 +16,11 @@ GPIO_12: YELLOW LED 5
 GPIO_16: YELLOW LED 6
 GPIO_21: YELLOW LED 7
 
+
+GPIO_1: RED LED
+
 GPIO_20: YELLOW LED 1 & RED LED (but yellow turns off!)
+	Remapped to GPIO_01 and no problem
 
 
 To toggle thru CLU, on pi: pinctrl set 12 op dh

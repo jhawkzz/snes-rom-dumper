@@ -50,24 +50,38 @@ public:
 		return gpiod_line_set_value(mpLine, (highLowState & 0x1));
 	}
 	
+	void Release()
+	{
+		if(mpLine)
+		{
+			gpiod_line_release(mpLine);
+			mpLine = nullptr;
+		}
+	}
+	
+	~Line()
+	{
+		if(mpLine)
+		{
+			LOG("ERROR! ~Line() had to release! Call Release() yourself!");
+			Release();
+		}
+	}
+	
 private:
 	int32_t mGPIOLineNum = 0;
 	int32_t mHigh = 0;
 	gpiod_line* mpLine = nullptr;
 };
 
+Line gAddressLines[8] = { {4}, {17}, {27}, {22}, {5}, {6}, {13}, {19} };
+
 int main(int argc, const char** argv)
 {
 	const char chipName[] = "gpiochip0";
-	uint32_t lineNum = 4;
 	int32_t result = 0;
 	
-	Line line17(17);
-	
-	gpiod_chip* pChip = nullptr;
-	gpiod_line* pLine = nullptr;
-	
-	pChip = gpiod_chip_open_by_name(chipName);
+	gpiod_chip* pChip = gpiod_chip_open_by_name(chipName);
 	if(!pChip)
 	{
 		printf("open chip failed\n");
@@ -75,49 +89,26 @@ int main(int argc, const char** argv)
 	}
 	printf("Chip opened!");
 	
-	if(!line17.OpenLine(pChip))
-	{
-		LOG("Couldn't open line 17");
-		return 0;
-	}
-	
-	
-	pLine = gpiod_chip_get_line(pChip, lineNum);
-	if(!pLine)
-	{
-		printf("get line failed\n");
-		return 0;
-	}
-	printf("get line worked!");
-	
-	result = line17.RequestLine(0);
-	if(result < 0)
+	if(!gAddressLines[0].OpenLine(pChip))
 	{
 		LOG("Couldn't open line");
 		return 0;
 	}
 	
-	result = gpiod_line_request_output(pLine, "CopyRom", 0);
+	result = gAddressLines[0].RequestLine(0);
 	if(result < 0)
 	{
-		printf("Request line as output failed\n");
+		LOG("Couldn't open line");
 		return 0;
 	}
-	
+		
 	uint32_t value = 0;
 	int32_t numTimes = 3;
 	while(numTimes > 0)
 	{
 		value = !value;
-		
-		result = gpiod_line_set_value(pLine, value);
-		if(result < 0)
-		{
-			printf("Set line value failed\n");
-			return 0;
-		}
-		
-		result = line17.SetHighLow(value);
+				
+		result = gAddressLines[0].SetHighLow(value);
 		if(result < 0)
 		{
 			LOG("Set line value failed");
@@ -128,14 +119,9 @@ int main(int argc, const char** argv)
 		sleep(5);
 	}
 	
-	result = gpiod_line_set_value(pLine, 0);
-	result = line17.SetHighLow(0);
+	result = gAddressLines[0].SetHighLow(0);
 		
-	if(pLine)
-	{
-		gpiod_line_release(pLine);
-		pLine = nullptr;
-	}
+	gAddressLines[0].Release();
 	
 	if(pChip)
 	{

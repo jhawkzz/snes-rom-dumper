@@ -1,4 +1,8 @@
-replace gpio literal calls with my new object
+write data lines array
+
+test all configurations!
+
+write a function to set actual values and convert decimal 0-255 to binary for address or data
 
 support variadic args with LOG
 
