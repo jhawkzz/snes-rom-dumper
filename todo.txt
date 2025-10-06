@@ -1,1 +1,4 @@
 replace gpio literal calls with my new object
+
+support variadic args with LOG
+
