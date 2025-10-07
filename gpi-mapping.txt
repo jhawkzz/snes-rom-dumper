@@ -12,12 +12,12 @@ GPIO_23: YELLOW LED 1
 GPIO_24: YELLOW LED 2
 GPIO_25: YELLOW LED 3
 GPIO_26: YELLOW LED 4
-GPIO_12: YELLOW LED 5
+GPIO_12: YELLOW LED 5 [trap is not using] (switch to 8, he is)
 GPIO_16: YELLOW LED 6
 GPIO_21: YELLOW LED 7
 
 
-GPIO_1: RED LED
+GPIO_1: RED LED [trap is not using] (switch to 7)
 
 GPIO_20: YELLOW LED 1 & RED LED (but yellow turns off!)
 	Remapped to GPIO_01 and no problem

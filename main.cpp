@@ -74,10 +74,77 @@ private:
 	gpiod_line* mpLine = nullptr;
 };
 
-Line gAddressLines[8] = { {4}, {17}, {27}, {22}, {5}, {6}, {13}, {19} };
+class AddressIO
+{
+public:
+	AddressIO(uint8_t pGPIOVals[8]) 
+	: mAddressLines{{pGPIOVals[0]}, 
+					{pGPIOVals[1]},
+					{pGPIOVals[2]},
+					{pGPIOVals[3]},
+					{pGPIOVals[4]},
+					{pGPIOVals[5]},
+					{pGPIOVals[6]},
+					{pGPIOVals[7]}}
+	{}
+	
+	~AddressIO()
+	{
+		Destroy();
+	}
+	
+	void Create(gpiod_chip* pChip)
+	{
+		if(!pChip)
+		{
+			LOG("Invalid chip passed!");
+			return;
+		}
+		
+		for(int32_t i = 0; i < 8; i++)
+		{
+			mAddressLines[i].OpenLine(pChip);
+		}
+	}
+	
+	void Destroy()
+	{
+		for(int32_t i = 0; i < 8; i++)
+		{
+			mAddressLines[i].Release();
+		}
+	}
+	
+	void RequestLines(uint8_t value)
+	{
+		for(int32_t i = 0; i < 8; i++)
+		{
+			mAddressLines[i].RequestLine(value & 0x1);
+		}
+	}
+	
+	void SetValue(uint8_t value)
+	{
+		for(int32_t i = 0; i < 8; i++)
+		{
+			mAddressLines[i].SetHighLow((value & (0x1 << i)) != 0 ? 1 : 0);
+		}
+	}
+	
+private:
+	Line mAddressLines[8];
+};
+
+
+//Line gAddressLines[8] = { {4}, {17}, {27}, {22}, {5}, {6}, {13}, {19} };
+//AddressIO gAddressBus(uint8_t[] = {4,17,27,22,5,6,13,19});
 
 int main(int argc, const char** argv)
 {
+	//todo: fix this, i want to pass globally
+	uint8_t array[] = {4,17,27,22,5,6,13,19};
+	AddressIO gAddressBus(array);
+	
 	const char chipName[] = "gpiochip0";
 	int32_t result = 0;
 	
@@ -89,7 +156,22 @@ int main(int argc, const char** argv)
 	}
 	printf("Chip opened!");
 	
-	if(!gAddressLines[0].OpenLine(pChip))
+	//todo: make this work!
+	gAddressBus.Create(pChip);
+	
+	gAddressBus.RequestLines(0);
+	
+	for(int32_t i = 0; i < 255; i++ )
+	{
+		gAddressBus.SetValue(i);
+		sleep(1);
+	}
+	
+	gAddressBus.SetValue(0);
+	
+	gAddressBus.Destroy();
+	
+	/*if(!gAddressLines[0].OpenLine(pChip))
 	{
 		LOG("Couldn't open line");
 		return 0;
@@ -121,7 +203,7 @@ int main(int argc, const char** argv)
 	
 	result = gAddressLines[0].SetHighLow(0);
 		
-	gAddressLines[0].Release();
+	gAddressLines[0].Release();*/
 	
 	if(pChip)
 	{
