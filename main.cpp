@@ -7,10 +7,10 @@ static const char gRequestingProgram[] = "CopyRom";
 
 #define LOG(a) printf("%s\n", (a))
 
-class Line
+class GPIOLine
 {
 public:
-	Line(int32_t gpioLineNum)
+	void Create(uint32_t gpioLineNum)
 	{
 		mGPIOLineNum = gpioLineNum;
 	}
@@ -20,6 +20,12 @@ public:
 		if(!pChip)
 		{
 			LOG("Chip invalid");
+			return false;
+		}
+		
+		if(mGPIOLineNum < 0)
+		{
+			LOG("GPIOLineNum not set");
 			return false;
 		}
 		
@@ -59,7 +65,7 @@ public:
 		}
 	}
 	
-	~Line()
+	~GPIOLine()
 	{
 		if(mpLine)
 		{
@@ -69,26 +75,24 @@ public:
 	}
 	
 private:
-	int32_t mGPIOLineNum = 0;
+	int32_t mGPIOLineNum = -1;
 	int32_t mHigh = 0;
 	gpiod_line* mpLine = nullptr;
 };
 
-class AddressIO
+template<int NumLines>
+class GPIOLineArray
 {
 public:
-	AddressIO(uint8_t pGPIOVals[8]) 
-	: mAddressLines{{pGPIOVals[0]}, 
-					{pGPIOVals[1]},
-					{pGPIOVals[2]},
-					{pGPIOVals[3]},
-					{pGPIOVals[4]},
-					{pGPIOVals[5]},
-					{pGPIOVals[6]},
-					{pGPIOVals[7]}}
-	{}
+	GPIOLineArray(uint8_t* pGPIOVals)
+	{
+		for(uint32_t i = 0; i < NumLines; i++)
+		{
+			mLines[i].Create(pGPIOVals[i]);
+		}
+	}
 	
-	~AddressIO()
+	~GPIOLineArray()
 	{
 		Destroy();
 	}
@@ -101,52 +105,49 @@ public:
 			return;
 		}
 		
-		for(int32_t i = 0; i < 8; i++)
+		for(int32_t i = 0; i < NumLines; i++)
 		{
-			mAddressLines[i].OpenLine(pChip);
+			mLines[i].OpenLine(pChip);
 		}
 	}
 	
 	void Destroy()
 	{
-		for(int32_t i = 0; i < 8; i++)
+		for(int32_t i = 0; i < NumLines; i++)
 		{
-			mAddressLines[i].Release();
+			mLines[i].Release();
 		}
 	}
 	
 	void RequestLines(uint8_t value)
 	{
-		for(int32_t i = 0; i < 8; i++)
+		for(int32_t i = 0; i < NumLines; i++)
 		{
-			mAddressLines[i].RequestLine(value & 0x1);
+			mLines[i].RequestLine(value & 0x1);
 		}
 	}
 	
-	void SetValue(uint8_t value)
+	void SetValue(uint32_t value)
 	{
-		for(int32_t i = 0; i < 8; i++)
+		for(int32_t i = 0; i < NumLines; i++)
 		{
-			mAddressLines[i].SetHighLow((value & (0x1 << i)) != 0 ? 1 : 0);
+			mLines[i].SetHighLow((value & (0x1 << i)) != 0 ? 1 : 0);
 		}
 	}
 	
 private:
-	Line mAddressLines[8];
+	GPIOLine mLines[NumLines];
 };
 
+uint8_t gAddressLineIndices[] = {4,17,27,22,5,6,13,19};
+GPIOLineArray<8> gAddressLines(gAddressLineIndices);
 
-//Line gAddressLines[8] = { {4}, {17}, {27}, {22}, {5}, {6}, {13}, {19} };
-//AddressIO gAddressBus(uint8_t[] = {4,17,27,22,5,6,13,19});
+uint8_t gDataLineIndices[] = {18,23,24,25,26,12,16,21};
+GPIOLineArray<8> gDataLines(gDataLineIndices);
 
 int main(int argc, const char** argv)
 {
-	//todo: fix this, i want to pass globally
-	uint8_t array[] = {4,17,27,22,5,6,13,19};
-	AddressIO gAddressBus(array);
-	
 	const char chipName[] = "gpiochip0";
-	int32_t result = 0;
 	
 	gpiod_chip* pChip = gpiod_chip_open_by_name(chipName);
 	if(!pChip)
@@ -156,54 +157,24 @@ int main(int argc, const char** argv)
 	}
 	printf("Chip opened!");
 	
-	//todo: make this work!
-	gAddressBus.Create(pChip);
+	gAddressLines.Create(pChip);
+	gDataLines.Create(pChip);
 	
-	gAddressBus.RequestLines(0);
+	gAddressLines.RequestLines(0);
+	gDataLines.RequestLines(0);
 	
 	for(int32_t i = 0; i < 255; i++ )
 	{
-		gAddressBus.SetValue(i);
+		gAddressLines.SetValue(i);
+		gDataLines.SetValue(i);
 		sleep(1);
 	}
 	
-	gAddressBus.SetValue(0);
+	gAddressLines.SetValue(0);
+	gDataLines.SetValue(0);
 	
-	gAddressBus.Destroy();
-	
-	/*if(!gAddressLines[0].OpenLine(pChip))
-	{
-		LOG("Couldn't open line");
-		return 0;
-	}
-	
-	result = gAddressLines[0].RequestLine(0);
-	if(result < 0)
-	{
-		LOG("Couldn't open line");
-		return 0;
-	}
-		
-	uint32_t value = 0;
-	int32_t numTimes = 3;
-	while(numTimes > 0)
-	{
-		value = !value;
-				
-		result = gAddressLines[0].SetHighLow(value);
-		if(result < 0)
-		{
-			LOG("Set line value failed");
-			return 0;
-		}
-		
-		numTimes--;
-		sleep(5);
-	}
-	
-	result = gAddressLines[0].SetHighLow(0);
-		
-	gAddressLines[0].Release();*/
+	gAddressLines.Destroy();
+	gDataLines.Destroy();
 	
 	if(pChip)
 	{
