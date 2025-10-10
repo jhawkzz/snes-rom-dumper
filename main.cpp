@@ -10,6 +10,13 @@ static const char gRequestingProgram[] = "CopyRom";
 class GPIOLine
 {
 public:
+	GPIOLine() 
+	{}
+	
+	GPIOLine(uint32_t gpioLineNum) : 
+		mGPIOLineNum(gpioLineNum) 
+	{}
+	
 	void Create(uint32_t gpioLineNum)
 	{
 		mGPIOLineNum = gpioLineNum;
@@ -142,8 +149,10 @@ private:
 uint8_t gAddressLineIndices[] = {4,17,27,22,5,6,13,19};
 GPIOLineArray<8> gAddressLines(gAddressLineIndices);
 
-uint8_t gDataLineIndices[] = {18,23,24,25,26,12,16,21};
+uint8_t gDataLineIndices[] = {18,23,24,25,26,7,16,21};
 GPIOLineArray<8> gDataLines(gDataLineIndices);
+
+GPIOLine gWriteEnable(2);
 
 int main(int argc, const char** argv)
 {
@@ -159,11 +168,15 @@ int main(int argc, const char** argv)
 	
 	gAddressLines.Create(pChip);
 	gDataLines.Create(pChip);
+	gWriteEnable.OpenLine(pChip);
 	
 	gAddressLines.RequestLines(0);
 	gDataLines.RequestLines(0);
+	gWriteEnable.RequestLine(0);
 	
-	for(int32_t i = 0; i < 255; i++ )
+	gWriteEnable.SetHighLow(1);
+	
+	for(int32_t i = 0; i < 256; i++ )
 	{
 		gAddressLines.SetValue(i);
 		gDataLines.SetValue(i);
@@ -172,9 +185,11 @@ int main(int argc, const char** argv)
 	
 	gAddressLines.SetValue(0);
 	gDataLines.SetValue(0);
+	gWriteEnable.SetHighLow(0);
 	
 	gAddressLines.Destroy();
 	gDataLines.Destroy();
+	gWriteEnable.Release();
 	
 	if(pChip)
 	{
