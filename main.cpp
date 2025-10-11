@@ -1,3 +1,4 @@
+#include <cstring>
 #include <cstdint>
 #include <gpiod.h>
 #include <stdio.h>
@@ -40,7 +41,7 @@ public:
 		return mpLine != nullptr;
 	}
 	
-	int32_t RequestLine(uint32_t highLowState) const
+	int32_t RequestLineOutput(uint32_t highLowState) const
 	{
 		if(!mpLine)
 		{
@@ -52,7 +53,7 @@ public:
 		return gpiod_line_request_output(mpLine, gRequestingProgram, (highLowState & 0x1));
 	}
 	
-	int32_t SetHighLow(uint32_t highLowState) const
+	int32_t SetValue(uint32_t highLowState) const
 	{
 		if(!mpLine)
 		{
@@ -63,7 +64,7 @@ public:
 		return gpiod_line_set_value(mpLine, (highLowState & 0x1));
 	}
 	
-	void Release()
+	void Destroy()
 	{
 		if(mpLine)
 		{
@@ -76,14 +77,13 @@ public:
 	{
 		if(mpLine)
 		{
-			LOG("ERROR! ~Line() had to release! Call Release() yourself!");
-			Release();
+			LOG("ERROR! ~Line() had to release! Call Destroy() yourself!");
+			Destroy();
 		}
 	}
 	
 private:
 	int32_t mGPIOLineNum = -1;
-	int32_t mHigh = 0;
 	gpiod_line* mpLine = nullptr;
 };
 
@@ -122,15 +122,15 @@ public:
 	{
 		for(int32_t i = 0; i < NumLines; i++)
 		{
-			mLines[i].Release();
+			mLines[i].Destroy();
 		}
 	}
 	
-	void RequestLines(uint8_t value)
+	void RequestLinesOutput(uint8_t value)
 	{
 		for(int32_t i = 0; i < NumLines; i++)
 		{
-			mLines[i].RequestLine(value & 0x1);
+			mLines[i].RequestLineOutput(value & 0x1);
 		}
 	}
 	
@@ -138,7 +138,7 @@ public:
 	{
 		for(int32_t i = 0; i < NumLines; i++)
 		{
-			mLines[i].SetHighLow((value & (0x1 << i)) != 0 ? 1 : 0);
+			mLines[i].SetValue((value & (0x1 << i)) != 0 ? 1 : 0);
 		}
 	}
 	
@@ -152,7 +152,10 @@ GPIOLineArray<8> gAddressLines(gAddressLineIndices);
 uint8_t gDataLineIndices[] = {18,23,24,25,26,7,16,21};
 GPIOLineArray<8> gDataLines(gDataLineIndices);
 
-GPIOLine gWriteEnable(2);
+uint8_t gWriteLineIndices[] = {2};
+GPIOLineArray<1> gWriteEnable(gWriteLineIndices);
+
+//GPIOLine gWriteEnable(2);
 
 int main(int argc, const char** argv)
 {
@@ -168,28 +171,48 @@ int main(int argc, const char** argv)
 	
 	gAddressLines.Create(pChip);
 	gDataLines.Create(pChip);
-	gWriteEnable.OpenLine(pChip);
+	gWriteEnable.Create(pChip);
 	
-	gAddressLines.RequestLines(0);
-	gDataLines.RequestLines(0);
-	gWriteEnable.RequestLine(0);
+	gAddressLines.RequestLinesOutput(0);
+	gDataLines.RequestLinesOutput(0);
+	gWriteEnable.RequestLinesOutput(0);
 	
-	gWriteEnable.SetHighLow(1);
-	
-	for(int32_t i = 0; i < 256; i++ )
+	if(argc == 2)
 	{
-		gAddressLines.SetValue(i);
-		gDataLines.SetValue(i);
+		if(!strcmp(argv[1], "--on"))
+		{
+			gAddressLines.SetValue(0xFF);
+			gDataLines.SetValue(0xFF);
+			gWriteEnable.SetValue(1);
+		}
+		else if(!strcmp(argv[1], "--off"))
+		{
+			gAddressLines.SetValue(0);
+			gDataLines.SetValue(0);
+			gWriteEnable.SetValue(0);
+		}
+		
 		sleep(1);
 	}
-	
-	gAddressLines.SetValue(0);
-	gDataLines.SetValue(0);
-	gWriteEnable.SetHighLow(0);
+	else
+	{
+		gWriteEnable.SetValue(1);
+		
+		for(int32_t i = 0; i < 256; i++ )
+		{
+			gAddressLines.SetValue(i);
+			gDataLines.SetValue(i);
+			sleep(1);
+		}
+		
+		gAddressLines.SetValue(0);
+		gDataLines.SetValue(0);
+		gWriteEnable.SetValue(0);
+	}
 	
 	gAddressLines.Destroy();
 	gDataLines.Destroy();
-	gWriteEnable.Release();
+	gWriteEnable.Destroy();
 	
 	if(pChip)
 	{
