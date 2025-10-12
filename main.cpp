@@ -146,10 +146,10 @@ private:
 	GPIOLine mLines[NumLines];
 };
 
-uint8_t gAddressLineIndices[] = {4,17,27,22,5,6,13,19};
+uint8_t gAddressLineIndices[] = {2,3,4,17,27,22,10,9};
 GPIOLineArray<8> gAddressLines(gAddressLineIndices);
 
-uint8_t gDataLineIndices[] = {18,23,24,25,26,7,16,21};
+uint8_t gDataLineIndices[] = {14,15,18,23,24,25,8,7};
 GPIOLineArray<8> gDataLines(gDataLineIndices);
 
 uint8_t gWriteLineIndices[] = {2};
@@ -171,32 +171,39 @@ int main(int argc, const char** argv)
 	
 	gAddressLines.Create(pChip);
 	gDataLines.Create(pChip);
-	gWriteEnable.Create(pChip);
+	//gWriteEnable.Create(pChip);
 	
 	gAddressLines.RequestLinesOutput(0);
 	gDataLines.RequestLinesOutput(0);
-	gWriteEnable.RequestLinesOutput(0);
+	//gWriteEnable.RequestLinesOutput(0);
 	
-	if(argc == 2)
+	if(argc > 1)
 	{
 		if(!strcmp(argv[1], "--on"))
 		{
 			gAddressLines.SetValue(0xFF);
 			gDataLines.SetValue(0xFF);
-			gWriteEnable.SetValue(1);
+			//gWriteEnable.SetValue(1);
 		}
 		else if(!strcmp(argv[1], "--off"))
 		{
 			gAddressLines.SetValue(0);
 			gDataLines.SetValue(0);
-			gWriteEnable.SetValue(0);
+			//gWriteEnable.SetValue(0);
+		}
+		else if(!strcmp(argv[1], "--value"))
+		{
+			int16_t value = atoi(argv[2]);
+			gAddressLines.SetValue(value);
+			gDataLines.SetValue(value);
+			//gWriteEnable.SetValue(0);
 		}
 		
 		sleep(1);
 	}
 	else
 	{
-		gWriteEnable.SetValue(1);
+		//gWriteEnable.SetValue(1);
 		
 		for(int32_t i = 0; i < 256; i++ )
 		{
@@ -207,12 +214,12 @@ int main(int argc, const char** argv)
 		
 		gAddressLines.SetValue(0);
 		gDataLines.SetValue(0);
-		gWriteEnable.SetValue(0);
+		//gWriteEnable.SetValue(0);
 	}
 	
 	gAddressLines.Destroy();
 	gDataLines.Destroy();
-	gWriteEnable.Destroy();
+	//gWriteEnable.Destroy();
 	
 	if(pChip)
 	{
