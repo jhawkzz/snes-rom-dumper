@@ -146,16 +146,14 @@ private:
 	GPIOLine mLines[NumLines];
 };
 
-uint8_t gAddressLineIndices[] = {2,3,4,17,27,22,10,9};
-GPIOLineArray<8> gAddressLines(gAddressLineIndices);
+uint8_t gAddressLineIndices[] = {2,3,4,17,27,22,10,9,5,6,13,19,26,16,20,21};
+GPIOLineArray<16> gAddressLines(gAddressLineIndices);
 
 uint8_t gDataLineIndices[] = {14,15,18,23,24,25,8,7};
 GPIOLineArray<8> gDataLines(gDataLineIndices);
 
-uint8_t gWriteLineIndices[] = {2};
+uint8_t gWriteLineIndices[] = {12};
 GPIOLineArray<1> gWriteEnable(gWriteLineIndices);
-
-//GPIOLine gWriteEnable(2);
 
 int main(int argc, const char** argv)
 {
@@ -171,11 +169,11 @@ int main(int argc, const char** argv)
 	
 	gAddressLines.Create(pChip);
 	gDataLines.Create(pChip);
-	//gWriteEnable.Create(pChip);
+	gWriteEnable.Create(pChip);
 	
 	gAddressLines.RequestLinesOutput(0);
 	gDataLines.RequestLinesOutput(0);
-	//gWriteEnable.RequestLinesOutput(0);
+	gWriteEnable.RequestLinesOutput(0);
 	
 	if(argc > 1)
 	{
@@ -183,43 +181,50 @@ int main(int argc, const char** argv)
 		{
 			gAddressLines.SetValue(0xFF);
 			gDataLines.SetValue(0xFF);
-			//gWriteEnable.SetValue(1);
+			gWriteEnable.SetValue(1);
 		}
 		else if(!strcmp(argv[1], "--off"))
 		{
 			gAddressLines.SetValue(0);
 			gDataLines.SetValue(0);
-			//gWriteEnable.SetValue(0);
+			gWriteEnable.SetValue(0);
 		}
-		else if(!strcmp(argv[1], "--value"))
+		else if(!strcmp(argv[1], "--address"))
 		{
-			int16_t value = atoi(argv[2]);
-			gAddressLines.SetValue(value);
-			gDataLines.SetValue(value);
-			//gWriteEnable.SetValue(0);
+			uint16_t value = atoi(argv[2]);
+			gAddressLines.SetValue(value % 65536);
+		}
+		else if(!strcmp(argv[1], "--data"))
+		{
+			uint8_t value = atoi(argv[2]);
+			gDataLines.SetValue(value % 256);
+		}
+		else if(!strcmp(argv[1], "--write"))
+		{
+			uint8_t value = atoi(argv[2]);
+			gWriteEnable.SetValue(value % 2);
 		}
 		
 		sleep(1);
 	}
 	else
 	{
-		//gWriteEnable.SetValue(1);
-		
-		for(int32_t i = 0; i < 256; i++ )
+		for(int32_t i = 0; i < 65536; i++ )
 		{
 			gAddressLines.SetValue(i);
-			gDataLines.SetValue(i);
+			gDataLines.SetValue(i % 256);
+			gWriteEnable.SetValue(i % 2);
 			sleep(1);
 		}
 		
 		gAddressLines.SetValue(0);
 		gDataLines.SetValue(0);
-		//gWriteEnable.SetValue(0);
+		gWriteEnable.SetValue(0);
 	}
 	
 	gAddressLines.Destroy();
 	gDataLines.Destroy();
-	//gWriteEnable.Destroy();
+	gWriteEnable.Destroy();
 	
 	if(pChip)
 	{
