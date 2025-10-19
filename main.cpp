@@ -6,65 +6,56 @@
 
 static const char gRequestingProgram[] = "CopyRom";
 
-#define LOG(a) printf("%s\n", (a))
+#define LOG(a) printf("%s: %s\n", __FUNCTION__, (a))
 
 class GPIOLine
 {
 public:
-	GPIOLine() 
-	{}
-	
-	GPIOLine(uint32_t gpioLineNum) : 
-		mGPIOLineNum(gpioLineNum) 
-	{}
-	
-	void Create(uint32_t gpioLineNum)
-	{
-		mGPIOLineNum = gpioLineNum;
-	}
-	
-	bool OpenLine(gpiod_chip* pChip)
+	void Create(gpiod_chip* pChip, uint32_t gpioLineNum)
 	{
 		if(!pChip)
 		{
-			LOG("Chip invalid");
-			return false;
+			LOG("Invalid chip passed.");
+			return;
 		}
 		
-		if(mGPIOLineNum < 0)
-		{
-			LOG("GPIOLineNum not set");
-			return false;
-		}
-		
-		mpLine = gpiod_chip_get_line(pChip, mGPIOLineNum);
-		return mpLine != nullptr;
+		mpChip = pChip;
+		mGPIOLineNum = gpioLineNum;
 	}
 	
-	int32_t RequestLineOutput(uint32_t highLowState) const
+	void HiZ()
 	{
-		if(!mpLine)
+		ConfigForInput();
+	}
+	
+	void Write(uint8_t bit)
+	{
+		ConfigForOutput();
+		
+		int32_t result = gpiod_line_set_value(mpLine, (bit & 0x1));
+		if(result == -1)
 		{
-			LOG("Line not open");
+			LOG("Failed to write to line.");
+		}
+	}
+	
+	int8_t Read()
+	{
+		ConfigForInput();
+		
+		int8_t value = gpiod_line_get_value(mpLine);
+		if(value > -1)
+		{
+			return value & 0x1;
+		}
+		else
+		{
+			LOG("Failed to read value for line.");
 			return -1;
 		}
-		
-		// Take the lowest bit so we don't send a value other than 0 or 1
-		return gpiod_line_request_output(mpLine, gRequestingProgram, (highLowState & 0x1));
 	}
 	
-	int32_t SetValue(uint32_t highLowState) const
-	{
-		if(!mpLine)
-		{
-			LOG("Line not open");
-			return -1;
-		}
-		
-		return gpiod_line_set_value(mpLine, (highLowState & 0x1));
-	}
-	
-	void Destroy()
+	void Release()
 	{
 		if(mpLine)
 		{
@@ -77,34 +68,101 @@ public:
 	{
 		if(mpLine)
 		{
-			LOG("ERROR! ~Line() had to release! Call Destroy() yourself!");
-			Destroy();
+			gpiod_line_release(mpLine);
+		}
+		
+		mpLine = nullptr;
+		mpChip = nullptr;
+	}
+	
+private:
+	bool OpenLine()
+	{
+		if(!mpChip)
+		{
+			LOG("Chip invalid");
+			return false;
+		}
+		
+		if(mGPIOLineNum < 0)
+		{
+			LOG("GPIOLineNum not set");
+			return false;
+		}
+		
+		mpLine = gpiod_chip_get_line(mpChip, mGPIOLineNum);
+		return mpLine != nullptr;
+	}
+	
+	void ConfigForOutput()
+	{
+		if(mDirection != Direction::Output)
+		{
+			mDirection = Direction::Output;
+			
+			Release();
+			
+			if(!OpenLine())
+			{
+				LOG("Failed to open line.");
+				return;
+			}
+			
+			int32_t result = gpiod_line_request_output(mpLine, gRequestingProgram, 1);
+			if(result == -1)
+			{
+				LOG("Failed to set line to output.");
+			}
+		}
+	}
+	
+	void ConfigForInput()
+	{
+		if(mDirection != Direction::Input)
+		{
+			mDirection = Direction::Input;
+			
+			Release();
+			
+			if(!OpenLine())
+			{
+				LOG("Failed to open line.");
+				return;
+			}
+			
+			int32_t result = gpiod_line_request_input(mpLine, gRequestingProgram);
+			if(result == -1)
+			{
+				LOG("Failed to set line to input.");
+			}
 		}
 	}
 	
 private:
 	int32_t mGPIOLineNum = -1;
 	gpiod_line* mpLine = nullptr;
+	gpiod_chip* mpChip = nullptr;
+	
+	enum class Direction
+	{
+		None,
+		Input,
+		Output
+	};
+	
+	Direction mDirection = Direction::None;
 };
 
 template<int NumLines>
 class GPIOLineArray
 {
 public:
-	GPIOLineArray(uint8_t* pGPIOVals)
-	{
-		for(uint32_t i = 0; i < NumLines; i++)
-		{
-			mLines[i].Create(pGPIOVals[i]);
-		}
-	}
-	
 	~GPIOLineArray()
 	{
-		Destroy();
+		Release();
 	}
 	
-	void Create(gpiod_chip* pChip)
+	void Create(gpiod_chip* pChip, uint8_t* pGPIOVals)
 	{
 		if(!pChip)
 		{
@@ -112,34 +170,49 @@ public:
 			return;
 		}
 		
-		for(int32_t i = 0; i < NumLines; i++)
+		for(uint32_t i = 0; i < NumLines; i++)
 		{
-			mLines[i].OpenLine(pChip);
+			mLines[i].Create(pChip, pGPIOVals[i]);
 		}
 	}
 	
-	void Destroy()
+	void Release()
 	{
-		for(int32_t i = 0; i < NumLines; i++)
+		for(uint32_t i = 0; i < NumLines; i++)
 		{
-			mLines[i].Destroy();
+			mLines[i].Release();
 		}
 	}
 	
-	void RequestLinesOutput(uint8_t value)
+	void HiZ()
 	{
 		for(int32_t i = 0; i < NumLines; i++)
 		{
-			mLines[i].RequestLineOutput(value & 0x1);
+			mLines[i].HiZ();
 		}
 	}
 	
-	void SetValue(uint32_t value)
+	void Write(uint32_t value)
 	{
 		for(int32_t i = 0; i < NumLines; i++)
 		{
-			mLines[i].SetValue((value & (0x1 << i)) != 0 ? 1 : 0);
+			mLines[i].Write((value & (0x1 << i)) != 0 ? 1 : 0);
 		}
+	}
+	
+	uint8_t Read()
+	{
+		uint8_t value = 0;
+		
+		for(int32_t i = 0; i < NumLines; i++)
+		{
+			uint8_t lineVal = mLines[i].Read();
+			
+			value |= ((lineVal != 0 ? 0x1 : 0) << i);
+			printf("lineVal %d is %d\n", i, lineVal);
+		}
+		
+		return value;
 	}
 	
 private:
@@ -147,13 +220,13 @@ private:
 };
 
 uint8_t gAddressLineIndices[] = {2,3,4,17,27,22,10,9,5,6,13,19,26,16,20,21};
-GPIOLineArray<16> gAddressLines(gAddressLineIndices);
+GPIOLineArray<16> gAddressLines;
 
 uint8_t gDataLineIndices[] = {14,15,18,23,24,25,8,7};
-GPIOLineArray<8> gDataLines(gDataLineIndices);
+GPIOLineArray<8> gDataLines;
 
 uint8_t gWriteLineIndices[] = {12};
-GPIOLineArray<1> gWriteEnable(gWriteLineIndices);
+GPIOLineArray<1> gWriteEnable;
 
 int main(int argc, const char** argv)
 {
@@ -165,66 +238,143 @@ int main(int argc, const char** argv)
 		printf("open chip failed\n");
 		return 0;
 	}
-	printf("Chip opened!");
 	
-	gAddressLines.Create(pChip);
-	gDataLines.Create(pChip);
-	gWriteEnable.Create(pChip);
+	gAddressLines.Create(pChip, gAddressLineIndices);
+	gDataLines.Create(pChip, gDataLineIndices);
+	gWriteEnable.Create(pChip, gWriteLineIndices);
 	
-	gAddressLines.RequestLinesOutput(0);
-	gDataLines.RequestLinesOutput(0);
-	gWriteEnable.RequestLinesOutput(0);
-	
-	if(argc > 1)
+	if(argc > 2)
 	{
-		if(!strcmp(argv[1], "--on"))
-		{
-			gAddressLines.SetValue(0xFF);
-			gDataLines.SetValue(0xFF);
-			gWriteEnable.SetValue(1);
-		}
-		else if(!strcmp(argv[1], "--off"))
-		{
-			gAddressLines.SetValue(0);
-			gDataLines.SetValue(0);
-			gWriteEnable.SetValue(0);
-		}
-		else if(!strcmp(argv[1], "--address"))
+		if(!strcmp(argv[1], "--address"))
 		{
 			uint16_t value = atoi(argv[2]);
-			gAddressLines.SetValue(value % 65536);
+			gAddressLines.Write(value % 65536);
 		}
 		else if(!strcmp(argv[1], "--data"))
 		{
 			uint8_t value = atoi(argv[2]);
-			gDataLines.SetValue(value % 256);
+			gDataLines.Write(value % 256);
 		}
 		else if(!strcmp(argv[1], "--write"))
 		{
 			uint8_t value = atoi(argv[2]);
-			gWriteEnable.SetValue(value % 2);
+			gWriteEnable.Write(value % 2);
 		}
-		
-		sleep(1);
+		else if(!strcmp(argv[1], "--address-line-on"))
+		{
+			uint8_t value = atoi(argv[2]);
+			gAddressLines.Write(0x1 << value);
+		}
+		else if(!strcmp(argv[1], "--address-line-on"))
+		{
+			uint8_t value = atoi(argv[2]);
+			gAddressLines.Write(0x1 << value);
+		}
+		else if(!strcmp(argv[1], "--address-line-off"))
+		{
+			gAddressLines.Write(0);
+		}
+		else if(!strcmp(argv[1], "--data-line-on"))
+		{
+			uint8_t value = atoi(argv[2]);
+			gDataLines.Write(0x1 << value);
+		}
+	}
+	else if(argc > 1)
+	{
+		if(!strcmp(argv[1], "--on"))
+		{
+			gAddressLines.Write(65535);
+			gDataLines.Write(0xFF);
+			gWriteEnable.Write(1);
+		}
+		else if(!strcmp(argv[1], "--off"))
+		{
+			gAddressLines.Write(0);
+			gDataLines.Write(0);
+			gWriteEnable.Write(0);
+		}
+		else if(!strcmp(argv[1], "--data-line-off"))
+		{
+			gDataLines.Write(0);
+		}
+		else if(!strcmp(argv[1], "--dance"))
+		{
+			for(int32_t i = 0; i < 65536; i++ )
+			{
+				gAddressLines.Write(i);
+				gDataLines.Write(i % 256);
+				gWriteEnable.Write(i % 2);
+				sleep(1);
+			}
+		}
+		else
+		{
+			LOG("Unknown arg. Did you forget a value for the arg?");
+		}
 	}
 	else
 	{
-		for(int32_t i = 0; i < 65536; i++ )
-		{
-			gAddressLines.SetValue(i);
-			gDataLines.SetValue(i % 256);
-			gWriteEnable.SetValue(i % 2);
-			sleep(1);
-		}
+		uint32_t writeVal = 0x3;
 		
-		gAddressLines.SetValue(0);
-		gDataLines.SetValue(0);
-		gWriteEnable.SetValue(0);
+		// write
+		 LOG("---Write---");
+		 LOG("Setting write enable high");
+		 gWriteEnable.Write(1);
+		 sleep(1);
+		 
+		 LOG("Setting data hiZ");
+		 gDataLines.HiZ();
+		 sleep(1);
+		
+		 LOG("Setting address 0x0");
+		 gAddressLines.Write(0);
+		 sleep(1);
+		 
+		 LOG("Setting write enable low");
+		 gWriteEnable.Write(0);
+		 sleep(1);
+		
+		 printf("Writing value: %x\n", writeVal);
+		 gDataLines.Write(writeVal);
+		 sleep(1);
+		
+		 LOG("Setting write enable high");
+		 gWriteEnable.Write(1);
+		 sleep(1);
+		 
+		 LOG("Setting data hiZ");
+		 gDataLines.HiZ();
+		 sleep(1);
+		 
+		 
+		 // read
+		 LOG("---Read---");
+		 LOG("Setting write enable high");
+		 gWriteEnable.Write(1);
+		 sleep(1);
+		
+		 LOG("Setting address 0x0");
+		 gAddressLines.Write(0);
+		 sleep(1);
+		 
+		 LOG("Setting data hiZ");
+		 gDataLines.HiZ();
+		 sleep(1);
+		
+		 LOG("Reading");
+		 uint8_t value = gDataLines.Read();
+		 printf("Value at dataline: %x\n", value);
+		 sleep(1);
+		 
+		 LOG("Setting data hiZ");
+		 gDataLines.HiZ();
+		 sleep(1);
 	}
 	
-	gAddressLines.Destroy();
-	gDataLines.Destroy();
-	gWriteEnable.Destroy();
+	gAddressLines.Release();
+	gDataLines.Release();
+	gWriteEnable.Release();
 	
 	if(pChip)
 	{
