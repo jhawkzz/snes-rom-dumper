@@ -209,7 +209,7 @@ public:
 			uint8_t lineVal = mLines[i].Read();
 			
 			value |= ((lineVal != 0 ? 0x1 : 0) << i);
-			printf("lineVal %d is %d\n", i, lineVal);
+			//printf("lineVal %d is %d\n", i, lineVal);
 		}
 		
 		return value;
@@ -227,6 +227,85 @@ GPIOLineArray<8> gDataLines;
 
 uint8_t gWriteLineIndices[] = {12};
 GPIOLineArray<1> gWriteEnable;
+
+uint8_t gSRAMBuffer[65536] = {0};
+
+void WriteReadRAMTest()
+{
+	// Use with the 15bit addressable ram chip.
+	
+	for(uint32_t i = 0; i < 65536; i++)
+	{
+		uint32_t address = i;
+		uint32_t writeValue = i % 256;
+		
+		// write
+		 LOG("---Write---");
+		 LOG("Setting write enable high");
+		 gWriteEnable.Write(1);
+		 usleep(10);
+		 
+		 LOG("Setting data hiZ");
+		 gDataLines.HiZ();
+		 usleep(10);
+		
+		 printf("Setting address 0%x\n", address);
+		 gAddressLines.Write(address);
+		 usleep(10);
+		 
+		 LOG("Setting write enable low");
+		 gWriteEnable.Write(0);
+		 usleep(10);
+		
+		 printf("Writing value: 0%x\n", writeValue);
+		 gDataLines.Write(writeValue);
+		 usleep(10);
+		
+		 LOG("Setting write enable high");
+		 gWriteEnable.Write(1);
+		 usleep(10);
+		 
+		 LOG("Setting data hiZ");
+		 gDataLines.HiZ();
+		 usleep(10);
+	}
+	 
+	 for(uint32_t i = 0; i < 65536; i++)
+	 {
+		uint32_t address = i;
+		
+		 // read
+		 LOG("---Read---");
+		 LOG("Setting write enable high");
+		 gWriteEnable.Write(1);
+		 usleep(10);
+		
+		 printf("Setting address 0%x\n", address);
+		 gAddressLines.Write(address);
+		 usleep(10);
+		 
+		 LOG("Setting data hiZ");
+		 gDataLines.HiZ();
+		 usleep(10);
+		
+		 LOG("Reading");
+		 uint8_t value = gDataLines.Read();
+		 printf("Value at dataline: %x\n", value);
+		 usleep(10);
+		 
+		 if(value != i % 256)
+		 {
+			 printf("*****THIS DOES NOT MATCH******\n");
+			 return;
+		 }
+		 
+		 LOG("Setting data hiZ");
+		 gDataLines.HiZ();
+		 usleep(10);
+	 }
+	 
+	 printf("*****ALL VALUES MATCH******\n");
+}
 
 int main(int argc, const char** argv)
 {
@@ -315,61 +394,53 @@ int main(int argc, const char** argv)
 	}
 	else
 	{
-		uint32_t writeVal = 0x3;
+		printf("Dumping SRAM at range $70:0000 - $70:FFFF\n");
+		sleep(1);
+			
+		printf("Setting write enable high\n");
+		gWriteEnable.Write(1);
+		usleep(10);
 		
-		// write
-		 LOG("---Write---");
-		 LOG("Setting write enable high");
-		 gWriteEnable.Write(1);
-		 sleep(1);
-		 
-		 LOG("Setting data hiZ");
-		 gDataLines.HiZ();
-		 sleep(1);
+		for(uint32_t i = 0; i < 65536; i++ )
+		{
+			uint32_t address = i;
+			
+			 // read
+			 printf("Setting Read Address to: 70:%04x\n", address);
+			 gAddressLines.Write(address);
+			 usleep(10);
+			 
+			 printf("Setting Data Bus to: HiZ\n");
+			 gDataLines.HiZ();
+			 usleep(10);
+			
+			 uint8_t value = gDataLines.Read();
+			 printf("Data Bus Received Value: %x\n", value);
+			 usleep(10);
+			 gSRAMBuffer[i] = value;
+			 
+			 printf("Setting Data Bus to: HiZ\n");
+			 gDataLines.HiZ();
+			 usleep(10);
+			 
+			 printf("\n");
+		}
 		
-		 LOG("Setting address 0x0");
-		 gAddressLines.Write(0);
-		 sleep(1);
-		 
-		 LOG("Setting write enable low");
-		 gWriteEnable.Write(0);
-		 sleep(1);
+		const char* pSramFileName = "./sram.ram";
 		
-		 printf("Writing value: %x\n", writeVal);
-		 gDataLines.Write(writeVal);
-		 sleep(1);
-		
-		 LOG("Setting write enable high");
-		 gWriteEnable.Write(1);
-		 sleep(1);
-		 
-		 LOG("Setting data hiZ");
-		 gDataLines.HiZ();
-		 sleep(1);
-		 
-		 
-		 // read
-		 LOG("---Read---");
-		 LOG("Setting write enable high");
-		 gWriteEnable.Write(1);
-		 sleep(1);
-		
-		 LOG("Setting address 0x0");
-		 gAddressLines.Write(0);
-		 sleep(1);
-		 
-		 LOG("Setting data hiZ");
-		 gDataLines.HiZ();
-		 sleep(1);
-		
-		 LOG("Reading");
-		 uint8_t value = gDataLines.Read();
-		 printf("Value at dataline: %x\n", value);
-		 sleep(1);
-		 
-		 LOG("Setting data hiZ");
-		 gDataLines.HiZ();
-		 sleep(1);
+		FILE* pFile = fopen(pSramFileName, "wb");
+		if(pFile)
+		{
+			printf("Wrote gSRAMBuffer to file '%s'\n", pSramFileName);
+			fwrite(gSRAMBuffer, sizeof(gSRAMBuffer), 1, pFile);
+			
+			fclose(pFile);
+			pFile = NULL;
+		}
+		else
+		{
+			printf("Failed to open file '%s' for write!\n", pSramFileName);
+		}
 	}
 	
 	gAddressLines.Release();
