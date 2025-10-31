@@ -108,7 +108,7 @@ private:
 				return;
 			}
 			
-			int32_t result = gpiod_line_request_output(mpLine, gRequestingProgram, 1);
+			int32_t result = gpiod_line_request_output(mpLine, gRequestingProgram, 0);
 			if(result == -1)
 			{
 				LOG("Failed to set line to output.");
@@ -130,7 +130,7 @@ private:
 				return;
 			}
 			
-			int32_t result = gpiod_line_request_input(mpLine, gRequestingProgram);
+			int32_t result = gpiod_line_request_input_flags(mpLine, gRequestingProgram, GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_DOWN);
 			if(result == -1)
 			{
 				LOG("Failed to set line to input.");
@@ -209,7 +209,7 @@ public:
 			uint8_t lineVal = mLines[i].Read();
 			
 			value |= ((lineVal != 0 ? 0x1 : 0) << i);
-			//printf("lineVal %d is %d\n", i, lineVal);
+			printf("lineVal %d is %d\n", i, lineVal);
 		}
 		
 		return value;
@@ -393,7 +393,7 @@ int main(int argc, const char** argv)
 		}
 	}
 	else
-	{
+	{		 
 		printf("Dumping SRAM at range $70:0000 - $70:FFFF\n");
 		sleep(1);
 			
