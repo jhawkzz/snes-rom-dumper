@@ -1,6 +1,0 @@
-Ask trap why non-red LEDs barely worked on my right side. so weird.
-	White didnt light up at all
-	Green BARELY showed.
-	red is fine.
-	
-Ask how to understand the truth table for WE#, CE# and OE#.

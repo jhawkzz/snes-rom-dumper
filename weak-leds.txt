@@ -1,6 +1,0 @@
-changed the grounding
-all lights on
-disconnected a blue
-took out the led totally (but left the wires)
-swapped the gpio mappings (2 became 4, 4 became 2)
-made it an array of 1

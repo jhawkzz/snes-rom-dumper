@@ -3,6 +3,7 @@
 #include <gpiod.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <iostream>
 
 static const char gRequestingProgram[] = "CopyRom";
 
@@ -25,7 +26,7 @@ public:
 	
 	void HiZ()
 	{
-		ConfigForInput();
+		ConfigForHiZ();
 	}
 	
 	void Write(uint8_t bit)
@@ -138,6 +139,29 @@ private:
 		}
 	}
 	
+	void ConfigForHiZ()
+	{
+		if(mDirection != Direction::HiZ)
+		{
+			mDirection = Direction::HiZ;
+			
+			Release();
+			
+			if(!OpenLine())
+			{
+				LOG("Failed to open line.");
+				return;
+			}
+			
+			int32_t result = gpiod_line_request_input_flags(mpLine, gRequestingProgram, GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP);
+			//int32_t result = gpiod_line_request_input(mpLine, gRequestingProgram);
+			if(result == -1)
+			{
+				LOG("Failed to set line to input.");
+			}
+		}
+	}
+	
 private:
 	int32_t mGPIOLineNum = -1;
 	gpiod_line* mpLine = nullptr;
@@ -147,7 +171,8 @@ private:
 	{
 		None,
 		Input,
-		Output
+		Output,
+		HiZ
 	};
 	
 	Direction mDirection = Direction::None;
@@ -209,7 +234,7 @@ public:
 			uint8_t lineVal = mLines[i].Read();
 			
 			value |= ((lineVal != 0 ? 0x1 : 0) << i);
-			printf("lineVal %d is %d\n", i, lineVal);
+			//printf("lineVal %d is %d\n", i, lineVal);
 		}
 		
 		return value;
@@ -239,7 +264,7 @@ void WriteReadRAMTest()
 		uint32_t address = i;
 		uint32_t writeValue = i % 256;
 		
-		// write
+		 // write
 		 LOG("---Write---");
 		 LOG("Setting write enable high");
 		 gWriteEnable.Write(1);
@@ -324,10 +349,32 @@ int main(int argc, const char** argv)
 	
 	if(argc > 2)
 	{
-		if(!strcmp(argv[1], "--address"))
+		if(!strcmp(argv[1], "--read-address"))
 		{
-			uint16_t value = atoi(argv[2]);
-			gAddressLines.Write(value % 65536);
+			uint16_t addressVal = atoi(argv[2]);
+			
+			gAddressLines.HiZ();
+			gDataLines.HiZ();
+			usleep(10);
+		
+			gWriteEnable.Write(1);
+			usleep(10);
+		
+			gAddressLines.Write(addressVal % 65536);
+			usleep(10);
+			gDataLines.HiZ();
+			usleep(10);
+			uint8_t dataVal = gDataLines.Read();
+			printf("Address: $%04x contains data: $%x\n", addressVal, dataVal);
+			
+			gAddressLines.HiZ();
+			gDataLines.HiZ();
+			usleep(10);
+		
+			printf("REMOVE CARTRIDGE NOW. Then press any key to exit.\n");
+			while(!getchar())
+			{
+			}
 		}
 		else if(!strcmp(argv[1], "--data"))
 		{
@@ -373,19 +420,11 @@ int main(int argc, const char** argv)
 			gDataLines.Write(0);
 			gWriteEnable.Write(0);
 		}
-		else if(!strcmp(argv[1], "--data-line-off"))
+		else if(!strcmp(argv[1], "--hiz"))
 		{
-			gDataLines.Write(0);
-		}
-		else if(!strcmp(argv[1], "--dance"))
-		{
-			for(int32_t i = 0; i < 65536; i++ )
-			{
-				gAddressLines.Write(i);
-				gDataLines.Write(i % 256);
-				gWriteEnable.Write(i % 2);
-				sleep(1);
-			}
+			gAddressLines.HiZ();
+			gDataLines.HiZ();
+			gWriteEnable.HiZ();
 		}
 		else
 		{
@@ -394,14 +433,82 @@ int main(int argc, const char** argv)
 	}
 	else
 	{		 
-		printf("Dumping SRAM at range $70:0000 - $70:FFFF\n");
-		sleep(1);
-			
-		printf("Setting write enable high\n");
+		// 11-1-25: Safe deterministic readings work. You can pull sram multiple times and its stable and binary identical.
+		// When you remove/insert the cart, sram values can get written because some pins are active. We would need a bus switch 
+		// or some way to hold power away from the cart until we plug in, put all pins into the correct state, and then switch over the bus.
+		// leds had to be disabled with the new inverter for /RD and /WR because it was too much power drain.
+		//
+		// One mildly safer thing to do is power off the pi to plug in first. YOU WILL STILL GET CHANGED VALUES but its...better?
+
+		gAddressLines.HiZ();
+		gDataLines.HiZ();
+		usleep(10);
+		
 		gWriteEnable.Write(1);
 		usleep(10);
 		
-		for(uint32_t i = 0; i < 65536; i++ )
+		printf("Insert game and press any key.\n");
+		while(!getchar())
+		{
+		}
+		
+		// WRITE
+		/*const char* pSramFileName = "./sram.ram";
+		
+		FILE* pFile = fopen(pSramFileName, "rb");
+		if(pFile)
+		{
+			printf("Read file to gSRAMBuffer from '%s'\n", pSramFileName);
+			fread(gSRAMBuffer, sizeof(gSRAMBuffer), 1, pFile);
+			
+			fclose(pFile);
+			pFile = NULL;
+		}
+		else
+		{
+			printf("Failed to open file '%s' for write!\n", pSramFileName);
+		}
+		
+		printf("Writing SRAM at range $70:0000 - $70:03FF\n");
+		usleep(1);
+		for(uint32_t i = 0; i < 1024; i++ )
+		{
+			uint32_t address = i;
+			
+			 LOG("---Write---");
+			 LOG("Setting write enable high");
+			 gWriteEnable.Write(1);
+			 usleep(10);
+			 
+			 LOG("Setting data hiZ");
+			 gDataLines.HiZ();
+			 usleep(10);
+			
+			 printf("Setting address 0%x\n", address);
+			 gAddressLines.Write(address);
+			 usleep(10);
+			 
+			 LOG("Setting write enable low");
+			 gWriteEnable.Write(0);
+			 usleep(10);
+			
+			 printf("Writing value: 0%x\n", gSRAMBuffer[i]);
+			 gDataLines.Write(gSRAMBuffer[i]);
+			 usleep(10);
+			
+			 LOG("Setting write enable high");
+			 gWriteEnable.Write(1);
+			 usleep(10);
+			 
+			 LOG("Setting data hiZ");
+			 gDataLines.HiZ();
+			 usleep(10);
+		}*/
+		
+		/// READ		
+		printf("Dumping SRAM at range $70:0000 - $70:03FF\n");
+		usleep(1);
+		for(uint32_t i = 0; i < 1024; i++ )
 		{
 			uint32_t address = i;
 			
@@ -440,6 +547,15 @@ int main(int argc, const char** argv)
 		else
 		{
 			printf("Failed to open file '%s' for write!\n", pSramFileName);
+		}
+		
+		gAddressLines.HiZ();
+		gDataLines.HiZ();
+		usleep(10);
+		
+		printf("REMOVE CARTRIDGE NOW. Then press any key to exit.\n");
+		while(!getchar())
+		{
 		}
 	}
 	

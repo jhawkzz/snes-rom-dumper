@@ -32,6 +32,8 @@ RED LED: GPIO_12
 DO NOT USE GPIO_0 or GPIO_1
 
 To toggle thru CLU, on pi: pinctrl set 12 op dh
+To read: pinctrl get 12
+
 J8:
    3V3  (1) (2)  5V
  GPIO2  (3) (4)  5V
