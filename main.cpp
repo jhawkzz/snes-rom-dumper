@@ -244,14 +244,18 @@ private:
 	GPIOLine mLines[NumLines];
 };
 
-uint8_t gAddressLineIndices[] = {2,3,4,17,27,22,10,9,5,6,13,19,26,16,20,21};
-GPIOLineArray<16> gAddressLines;
+//jhm 11-3 gpio21 IS NO LONGER ADDRESS LINE 15 IT IS RESET PIN.
+uint8_t gAddressLineIndices[] = {2,3,4,17,27,22,10,9,5,6,13,19,26,16,20};
+GPIOLineArray<15> gAddressLines;
 
 uint8_t gDataLineIndices[] = {14,15,18,23,24,25,8,7};
 GPIOLineArray<8> gDataLines;
 
 uint8_t gWriteLineIndices[] = {12};
 GPIOLineArray<1> gWriteEnable;
+
+uint8_t gResetLineIndices[] = {21};
+GPIOLineArray<1> gReset;
 
 uint8_t gSRAMBuffer[65536] = {0};
 
@@ -332,6 +336,107 @@ void WriteReadRAMTest()
 	 printf("*****ALL VALUES MATCH******\n");
 }
 
+void WriteSRAM(uint32_t sramSize)
+{
+	const char* pSramFileName = "./sram.ram";
+		
+	FILE* pFile = fopen(pSramFileName, "rb");
+	if(pFile)
+	{
+		printf("Read file to gSRAMBuffer from '%s'\n", pSramFileName);
+		fread(gSRAMBuffer, sizeof(gSRAMBuffer), 1, pFile);
+		
+		fclose(pFile);
+		pFile = NULL;
+	}
+	else
+	{
+		printf("Failed to open file '%s' for write!\n", pSramFileName);
+	}
+	
+	printf("Writing SRAM at range $70:0000 - $70:03FF\n");
+	usleep(1);
+	for(uint32_t i = 0; i < sramSize; i++ )
+	{
+		uint32_t address = i;
+		
+		 //LOG("---Write---");
+		 //LOG("Setting write enable high");
+		 gWriteEnable.Write(1);
+		 usleep(10);
+		 
+		 //LOG("Setting data hiZ");
+		 gDataLines.HiZ();
+		 usleep(10);
+		
+		 //printf("Setting address 0%x\n", address);
+		 gAddressLines.Write(address);
+		 usleep(10);
+		 
+		 //LOG("Setting write enable low");
+		 gWriteEnable.Write(0);
+		 usleep(10);
+		
+		 printf("%x: %x\n", address, gSRAMBuffer[i]);
+		 gDataLines.Write(gSRAMBuffer[i]);
+		 usleep(10);
+		
+		 //LOG("Setting write enable high");
+		 gWriteEnable.Write(1);
+		 usleep(10);
+		 
+		 //LOG("Setting data hiZ");
+		 gDataLines.HiZ();
+		 usleep(10);
+	}
+}
+
+void ReadSRAM(uint32_t sramSize)
+{
+	printf("Dumping SRAM at range $70:0000 - $70:03FF\n");
+	usleep(1);
+	for(uint32_t i = 0; i < sramSize; i++ )
+	{
+		uint32_t address = i;
+		
+		 // read
+		 //printf("Setting Read Address to: 70:%04x\n", address);
+		 gAddressLines.Write(address);
+		 usleep(10);
+		 
+		 //printf("Setting Data Bus to: HiZ\n");
+		 gDataLines.HiZ();
+		 usleep(10);
+		
+		 uint8_t value = gDataLines.Read();
+		 printf("%x: %x\n", address, value);
+		 usleep(10);
+		 gSRAMBuffer[i] = value;
+		 
+		 //printf("Setting Data Bus to: HiZ\n");
+		 gDataLines.HiZ();
+		 usleep(10);
+		 
+		 //printf("\n");
+	}
+	
+	const char* pSramFileName = "./sram.ram";
+	
+	FILE* pFile = fopen(pSramFileName, "wb");
+	if(pFile)
+	{
+		printf("Wrote gSRAMBuffer to file '%s'\n", pSramFileName);
+		fwrite(gSRAMBuffer, sizeof(gSRAMBuffer), 1, pFile);
+		
+		fclose(pFile);
+		pFile = NULL;
+	}
+	else
+	{
+		printf("Failed to open file '%s' for write!\n", pSramFileName);
+	}
+}
+
 int main(int argc, const char** argv)
 {
 	const char chipName[] = "gpiochip0";
@@ -346,6 +451,7 @@ int main(int argc, const char** argv)
 	gAddressLines.Create(pChip, gAddressLineIndices);
 	gDataLines.Create(pChip, gDataLineIndices);
 	gWriteEnable.Create(pChip, gWriteLineIndices);
+	gReset.Create(pChip, gResetLineIndices);
 	
 	if(argc > 2)
 	{
@@ -426,6 +532,63 @@ int main(int argc, const char** argv)
 			gDataLines.HiZ();
 			gWriteEnable.HiZ();
 		}
+		else if (!strcmp(argv[1], "--read") || !strcmp(argv[1], "--write"))
+		{
+			// 11-1-25: Safe deterministic readings work. You can pull sram multiple times and its stable and binary identical.
+			// When you remove/insert the cart, sram values can get written because some pins are active. We would need a bus switch 
+			// or some way to hold power away from the cart until we plug in, put all pins into the correct state, and then switch over the bus.
+			// leds had to be disabled with the new inverter for /RD and /WR because it was too much power drain.
+			//
+			// One mildly safer thing to do is power off the pi to plug in first. YOU WILL STILL GET CHANGED VALUES but its...better?
+
+			gAddressLines.HiZ();
+			gDataLines.HiZ();
+			usleep(10);
+			
+			gWriteEnable.Write(1);
+			usleep(10);
+			
+			gReset.Write(0);
+			usleep(10);
+			
+			bool bReading = true;
+			if(!strcmp(argv[1], "--write"))			
+			{
+				bReading = false;
+			}
+			
+			printf("Preparing to: %s - Insert game and press any key.\n", bReading ? "READ" : "WRITE");
+			while(!getchar())
+			{
+			}
+			
+			gReset.Write(1);
+			usleep(10);
+			
+			uint32_t ff2Size = 8192;
+			uint32_t smwSize = 1024;
+			
+			if(bReading)
+			{
+				ReadSRAM(ff2Size);
+			}
+			else
+			{
+				WriteSRAM(ff2Size);
+			}
+			
+			// Wrap Up
+			gWriteEnable.Write(1);
+			gReset.Write(0);
+			gAddressLines.HiZ();
+			gDataLines.HiZ();
+			usleep(10);
+			
+			printf("REMOVE CARTRIDGE NOW. Then press any key to exit.\n");
+			while(!getchar())
+			{
+			}
+		}
 		else
 		{
 			LOG("Unknown arg. Did you forget a value for the arg?");
@@ -433,135 +596,13 @@ int main(int argc, const char** argv)
 	}
 	else
 	{		 
-		// 11-1-25: Safe deterministic readings work. You can pull sram multiple times and its stable and binary identical.
-		// When you remove/insert the cart, sram values can get written because some pins are active. We would need a bus switch 
-		// or some way to hold power away from the cart until we plug in, put all pins into the correct state, and then switch over the bus.
-		// leds had to be disabled with the new inverter for /RD and /WR because it was too much power drain.
-		//
-		// One mildly safer thing to do is power off the pi to plug in first. YOU WILL STILL GET CHANGED VALUES but its...better?
-
-		gAddressLines.HiZ();
-		gDataLines.HiZ();
-		usleep(10);
-		
-		gWriteEnable.Write(1);
-		usleep(10);
-		
-		printf("Insert game and press any key.\n");
-		while(!getchar())
-		{
-		}
-		
-		// WRITE
-		/*const char* pSramFileName = "./sram.ram";
-		
-		FILE* pFile = fopen(pSramFileName, "rb");
-		if(pFile)
-		{
-			printf("Read file to gSRAMBuffer from '%s'\n", pSramFileName);
-			fread(gSRAMBuffer, sizeof(gSRAMBuffer), 1, pFile);
-			
-			fclose(pFile);
-			pFile = NULL;
-		}
-		else
-		{
-			printf("Failed to open file '%s' for write!\n", pSramFileName);
-		}
-		
-		printf("Writing SRAM at range $70:0000 - $70:03FF\n");
-		usleep(1);
-		for(uint32_t i = 0; i < 1024; i++ )
-		{
-			uint32_t address = i;
-			
-			 LOG("---Write---");
-			 LOG("Setting write enable high");
-			 gWriteEnable.Write(1);
-			 usleep(10);
-			 
-			 LOG("Setting data hiZ");
-			 gDataLines.HiZ();
-			 usleep(10);
-			
-			 printf("Setting address 0%x\n", address);
-			 gAddressLines.Write(address);
-			 usleep(10);
-			 
-			 LOG("Setting write enable low");
-			 gWriteEnable.Write(0);
-			 usleep(10);
-			
-			 printf("Writing value: 0%x\n", gSRAMBuffer[i]);
-			 gDataLines.Write(gSRAMBuffer[i]);
-			 usleep(10);
-			
-			 LOG("Setting write enable high");
-			 gWriteEnable.Write(1);
-			 usleep(10);
-			 
-			 LOG("Setting data hiZ");
-			 gDataLines.HiZ();
-			 usleep(10);
-		}*/
-		
-		/// READ		
-		printf("Dumping SRAM at range $70:0000 - $70:03FF\n");
-		usleep(1);
-		for(uint32_t i = 0; i < 1024; i++ )
-		{
-			uint32_t address = i;
-			
-			 // read
-			 printf("Setting Read Address to: 70:%04x\n", address);
-			 gAddressLines.Write(address);
-			 usleep(10);
-			 
-			 printf("Setting Data Bus to: HiZ\n");
-			 gDataLines.HiZ();
-			 usleep(10);
-			
-			 uint8_t value = gDataLines.Read();
-			 printf("Data Bus Received Value: %x\n", value);
-			 usleep(10);
-			 gSRAMBuffer[i] = value;
-			 
-			 printf("Setting Data Bus to: HiZ\n");
-			 gDataLines.HiZ();
-			 usleep(10);
-			 
-			 printf("\n");
-		}
-		
-		const char* pSramFileName = "./sram.ram";
-		
-		FILE* pFile = fopen(pSramFileName, "wb");
-		if(pFile)
-		{
-			printf("Wrote gSRAMBuffer to file '%s'\n", pSramFileName);
-			fwrite(gSRAMBuffer, sizeof(gSRAMBuffer), 1, pFile);
-			
-			fclose(pFile);
-			pFile = NULL;
-		}
-		else
-		{
-			printf("Failed to open file '%s' for write!\n", pSramFileName);
-		}
-		
-		gAddressLines.HiZ();
-		gDataLines.HiZ();
-		usleep(10);
-		
-		printf("REMOVE CARTRIDGE NOW. Then press any key to exit.\n");
-		while(!getchar())
-		{
-		}
+		LOG("No args provided. Maybe you wanted --read or --write?");
 	}
 	
 	gAddressLines.Release();
 	gDataLines.Release();
 	gWriteEnable.Release();
+	gReset.Release();
 	
 	if(pChip)
 	{
