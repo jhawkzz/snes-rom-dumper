@@ -1,0 +1,11 @@
+RAM
+7E16A0: Gold value
+
+SRAM
+FF4 SRAM
+440: Item slot 1 ID
+441: Item slot 1 quantity
+500-505: Save 1 Cecil's Name
+506-50B: Save 1 Kain's Name
+6A0: Gold
+16a3-16a4: Some kind of timer at the save screen.

@@ -534,13 +534,23 @@ int main(int argc, const char** argv)
 		}
 		else if (!strcmp(argv[1], "--read") || !strcmp(argv[1], "--write"))
 		{
-			// 11-1-25: Safe deterministic readings work. You can pull sram multiple times and its stable and binary identical.
-			// When you remove/insert the cart, sram values can get written because some pins are active. We would need a bus switch 
-			// or some way to hold power away from the cart until we plug in, put all pins into the correct state, and then switch over the bus.
-			// leds had to be disabled with the new inverter for /RD and /WR because it was too much power drain.
-			//
-			// One mildly safer thing to do is power off the pi to plug in first. YOU WILL STILL GET CHANGED VALUES but its...better?
-
+			//11-3-2025: Reading and writing is stable. I put the reset line on a gpio port, set it to low until you insert the game,
+			//then set it high, read/write, then set it low and tell you to remove it. This ensures that the game uses the battery until its 
+			//actually time to read/write, and avoids power fluctuations that alter sram state on insertion/removal.
+			//I tested:
+			//SWM - Insert, read, remove, insert, read: identical
+			//FF2 - Insert, WRITE, remove, play in snes, read, remove, insert in SNES, remove, read, remove, read.
+			//		In this instance, it remained identical through and through except for the times i put it in the snes, and then two bytes 
+			//		changed at address  16A3-16A4. But when i just removed/inserted/removed/inserted (no snes) it remained binary identical.
+			//		its clear that these bytes are being changed by the game.
+			// where we stand:
+			// lines 0-14 are address lines 
+			// lines 0-7 are data lines 
+			// write line 
+			// reset line
+			// all otheres are hardwired.
+			// the trick is the write line and reset lines must be high and low respectively when inserting/removing the cart.
+			// also, LEDs do drain power and further hurt data integrity.
 			gAddressLines.HiZ();
 			gDataLines.HiZ();
 			usleep(10);
