@@ -589,7 +589,11 @@ int main(int argc, const char** argv)
 			
 			// Wrap Up
 			gWriteEnable.Write(1);
+			usleep(10);
+			
 			gReset.Write(0);
+			usleep(10);
+			
 			gAddressLines.HiZ();
 			gDataLines.HiZ();
 			usleep(10);
