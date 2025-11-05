@@ -1,3 +1,21 @@
+//11-3-2025: Reading and writing is stable. I put the reset line on a gpio port, set it to low until you insert the game,
+//then set it high, read/write, then set it low and tell you to remove it. This ensures that the game uses the battery until its 
+//actually time to read/write, and avoids power fluctuations that alter sram state on insertion/removal.
+//I tested:
+//SWM - Insert, read, remove, insert, read: identical
+//FF2 - Insert, WRITE, remove, play in snes, read, remove, insert in SNES, remove, read, remove, read.
+//		In this instance, it remained identical through and through except for the times i put it in the snes, and then two bytes 
+//		changed at address  16A3-16A4. But when i just removed/inserted/removed/inserted (no snes) it remained binary identical.
+//		its clear that these bytes are being changed by the game.
+// where we stand:
+// lines 0-14 are address lines 
+// lines 0-7 are data lines 
+// write line 
+// reset line
+// all otheres are hardwired.
+// the trick is the write line and reset lines must be high and low respectively when inserting/removing the cart.
+// also, LEDs do drain power and further hurt data integrity.
+	
 #include <cstring>
 #include <cstdint>
 #include <gpiod.h>
@@ -5,6 +23,64 @@
 #include <unistd.h>
 #include <iostream>
 
+//todo: put in RomManager.h
+#define MAX_ROM_INFOS (2)
+struct RomInfo
+{
+public:
+	RomInfo() : mSRAMSize(0)
+	{
+		memset(mRomName, 0, sizeof(mRomName));
+	}
+	
+	char mRomName[256];
+	uint32_t mSRAMSize;	
+};
+
+uint32_t gNumRomInfos = 0;
+RomInfo gRomInfos[MAX_ROM_INFOS];
+
+bool AddRomInfo(const char* pRomName, uint32_t sramSize)
+{
+	if(gNumRomInfos + 1 > MAX_ROM_INFOS)
+	{
+		printf("AddRomInfo: Cannot add more roms. Increase MAX_ROM_INFOS which is size: %d\n", MAX_ROM_INFOS);
+		return false;
+	}
+	
+	strcpy(gRomInfos[gNumRomInfos].mRomName, pRomName);
+	gRomInfos[gNumRomInfos].mSRAMSize = sramSize;
+	
+	gNumRomInfos++;
+	return true;
+}
+
+bool CreateRomInfos()
+{
+	// Final Fantasy 2 (ff2)
+	if(!AddRomInfo("ff2", 8192)) return false;
+	
+	// Super Mario World
+	if(!AddRomInfo("smw", 1024)) return false;
+	
+	return true;
+}
+
+RomInfo* GetRomInfo(const char* pRomName)
+{
+	for(uint32_t i = 0; i < gNumRomInfos; i++)
+	{
+		if(!strcmp(gRomInfos[i].mRomName, pRomName))
+		{
+			return &gRomInfos[i];
+		}
+	}
+	
+	return nullptr;
+}
+//
+
+// todo: put in GPIOManager.h
 static const char gRequestingProgram[] = "CopyRom";
 
 #define LOG(a) printf("%s: %s\n", __FUNCTION__, (a))
@@ -243,6 +319,7 @@ public:
 private:
 	GPIOLine mLines[NumLines];
 };
+//
 
 //jhm 11-3 gpio21 IS NO LONGER ADDRESS LINE 15 IT IS RESET PIN.
 uint8_t gAddressLineIndices[] = {2,3,4,17,27,22,10,9,5,6,13,19,26,16,20};
@@ -336,14 +413,15 @@ void WriteReadRAMTest()
 	 printf("*****ALL VALUES MATCH******\n");
 }
 
-void WriteSRAM(uint32_t sramSize)
+void WriteSRAM(RomInfo* pRomInfo)
 {
-	const char* pSramFileName = "./sram.ram";
+	char sramFileName[300] = { 0 };
+	snprintf(sramFileName, sizeof(sramFileName) - 1, "./%s-sram.srm", pRomInfo->mRomName);
 		
-	FILE* pFile = fopen(pSramFileName, "rb");
+	FILE* pFile = fopen(sramFileName, "rb");
 	if(pFile)
 	{
-		printf("Read file to gSRAMBuffer from '%s'\n", pSramFileName);
+		printf("WriteSRAM: Read contents from file '%s'\n", sramFileName);
 		fread(gSRAMBuffer, sizeof(gSRAMBuffer), 1, pFile);
 		
 		fclose(pFile);
@@ -351,29 +429,25 @@ void WriteSRAM(uint32_t sramSize)
 	}
 	else
 	{
-		printf("Failed to open file '%s' for write!\n", pSramFileName);
+		printf("Failed to open file '%s' for write!\n", pRomInfo->mRomName);
+		return;
 	}
 	
-	printf("Writing SRAM at range $70:0000 - $70:03FF\n");
+	printf("Writing SRAM for '%s', size '%d'\n", pRomInfo->mRomName, pRomInfo->mSRAMSize);
 	usleep(1);
-	for(uint32_t i = 0; i < sramSize; i++ )
+	for(uint32_t i = 0; i < pRomInfo->mSRAMSize; i++ )
 	{
 		uint32_t address = i;
 		
-		 //LOG("---Write---");
-		 //LOG("Setting write enable high");
 		 gWriteEnable.Write(1);
 		 usleep(10);
 		 
-		 //LOG("Setting data hiZ");
 		 gDataLines.HiZ();
 		 usleep(10);
 		
-		 //printf("Setting address 0%x\n", address);
 		 gAddressLines.Write(address);
 		 usleep(10);
 		 
-		 //LOG("Setting write enable low");
 		 gWriteEnable.Write(0);
 		 usleep(10);
 		
@@ -381,51 +455,44 @@ void WriteSRAM(uint32_t sramSize)
 		 gDataLines.Write(gSRAMBuffer[i]);
 		 usleep(10);
 		
-		 //LOG("Setting write enable high");
 		 gWriteEnable.Write(1);
 		 usleep(10);
 		 
-		 //LOG("Setting data hiZ");
 		 gDataLines.HiZ();
 		 usleep(10);
 	}
 }
 
-void ReadSRAM(uint32_t sramSize)
+void ReadSRAM(RomInfo* pRomInfo)
 {
-	printf("Dumping SRAM at range $70:0000 - $70:03FF\n");
+	printf("Reading SRAM for '%s', size '%d'\n", pRomInfo->mRomName, pRomInfo->mSRAMSize);
 	usleep(1);
-	for(uint32_t i = 0; i < sramSize; i++ )
+	for(uint32_t i = 0; i < pRomInfo->mSRAMSize; i++ )
 	{
 		uint32_t address = i;
 		
 		 // read
-		 //printf("Setting Read Address to: 70:%04x\n", address);
 		 gAddressLines.Write(address);
 		 usleep(10);
 		 
-		 //printf("Setting Data Bus to: HiZ\n");
 		 gDataLines.HiZ();
 		 usleep(10);
 		
 		 uint8_t value = gDataLines.Read();
-		 printf("%x: %x\n", address, value);
 		 usleep(10);
 		 gSRAMBuffer[i] = value;
 		 
-		 //printf("Setting Data Bus to: HiZ\n");
 		 gDataLines.HiZ();
 		 usleep(10);
-		 
-		 //printf("\n");
 	}
 	
-	const char* pSramFileName = "./sram.ram";
+	char sramFileName[300] = { 0 };
+	snprintf(sramFileName, sizeof(sramFileName) - 1, "./%s-sram.srm", pRomInfo->mRomName);
 	
-	FILE* pFile = fopen(pSramFileName, "wb");
+	FILE* pFile = fopen(sramFileName, "wb");
 	if(pFile)
 	{
-		printf("Wrote gSRAMBuffer to file '%s'\n", pSramFileName);
+		printf("ReadSRAM: Wrote contents to file '%s'\n", sramFileName);
 		fwrite(gSRAMBuffer, sizeof(gSRAMBuffer), 1, pFile);
 		
 		fclose(pFile);
@@ -433,12 +500,115 @@ void ReadSRAM(uint32_t sramSize)
 	}
 	else
 	{
-		printf("Failed to open file '%s' for write!\n", pSramFileName);
+		printf("Failed to open file '%s' for write!\n", sramFileName);
+	}
+}
+
+void RunMain(const char* pRomName)
+{
+	RomInfo* pRomInfo = GetRomInfo(pRomName);
+	if(!pRomInfo)
+	{
+		printf("Could not find rom info for rom '%s'\n", pRomName);
+		return;
+	}
+	
+	// Configure lines for cartridge insertion
+	gWriteEnable.Write(1);
+	usleep(100);
+	
+	gReset.Write(0);
+	usleep(100);
+	
+	gAddressLines.HiZ();
+	gDataLines.HiZ();
+	usleep(100);
+	//
+	
+	printf("INSERT GAME and press any key.\n");
+	while(!getchar())
+	{
+	}
+	
+	// Set Reset High so we send sram 5v and can read/write.
+	gReset.Write(1);
+	usleep(100);
+
+	bool shouldExit = false;	
+	while(!shouldExit)
+	{
+		printf("[R]ead from SRAM\n");
+		printf("[W]rite to SRAM\n");
+		printf("E[x]it\n");
+		printf("Your Selection: ");
+
+		uint32_t inputChoice = 0;
+		uint32_t c = 0;
+		do
+		{
+			c = getchar();
+			if(c != '\n')
+			{
+				inputChoice = c;
+			}
+		}
+		while(c != '\n');
+			
+		switch(inputChoice)
+		{
+			case 'r':
+			{
+				ReadSRAM(pRomInfo);
+				break;
+			}
+			
+			case 'w':
+			{
+				WriteSRAM(pRomInfo);
+				break;
+			}
+			
+			case 'x':
+			{
+				shouldExit = true;
+				break;
+			}
+			
+			default:
+			{
+				printf("Unknown choice '%c'\n", inputChoice);
+				break;
+			}
+		}
+	}
+	
+	
+	// Configure lines for removing cartridge
+	gWriteEnable.Write(1);
+	usleep(100);
+	
+	gReset.Write(0);
+	usleep(100);
+	
+	gAddressLines.HiZ();
+	gDataLines.HiZ();
+	usleep(100);
+	
+	printf("REMOVE CARTRIDGE and press any key.\n");
+	while(!getchar())
+	{
 	}
 }
 
 int main(int argc, const char** argv)
 {
+	if(argc == 1)
+	{
+		printf("Not enough arguments supplied!\n");
+		printf("Try --game [gamename]\n");
+		return 0;
+	}
+	
 	const char chipName[] = "gpiochip0";
 	
 	gpiod_chip* pChip = gpiod_chip_open_by_name(chipName);
@@ -448,170 +618,99 @@ int main(int argc, const char** argv)
 		return 0;
 	}
 	
+	if(!CreateRomInfos())
+	{
+		printf("Failed to create Rom Infos\n");
+		return 0;
+	}
+	
+	// setup bus lines
 	gAddressLines.Create(pChip, gAddressLineIndices);
 	gDataLines.Create(pChip, gDataLineIndices);
 	gWriteEnable.Create(pChip, gWriteLineIndices);
 	gReset.Create(pChip, gResetLineIndices);
 	
-	if(argc > 2)
+	if(!strcmp(argv[1], "--game"))
 	{
-		if(!strcmp(argv[1], "--read-address"))
+		if(argc == 3)
 		{
-			uint16_t addressVal = atoi(argv[2]);
-			
-			gAddressLines.HiZ();
-			gDataLines.HiZ();
-			usleep(10);
-		
-			gWriteEnable.Write(1);
-			usleep(10);
-		
-			gAddressLines.Write(addressVal % 65536);
-			usleep(10);
-			gDataLines.HiZ();
-			usleep(10);
-			uint8_t dataVal = gDataLines.Read();
-			printf("Address: $%04x contains data: $%x\n", addressVal, dataVal);
-			
-			gAddressLines.HiZ();
-			gDataLines.HiZ();
-			usleep(10);
-		
-			printf("REMOVE CARTRIDGE NOW. Then press any key to exit.\n");
-			while(!getchar())
-			{
-			}
-		}
-		else if(!strcmp(argv[1], "--data"))
-		{
-			uint8_t value = atoi(argv[2]);
-			gDataLines.Write(value % 256);
-		}
-		else if(!strcmp(argv[1], "--write"))
-		{
-			uint8_t value = atoi(argv[2]);
-			gWriteEnable.Write(value % 2);
-		}
-		else if(!strcmp(argv[1], "--address-line-on"))
-		{
-			uint8_t value = atoi(argv[2]);
-			gAddressLines.Write(0x1 << value);
-		}
-		else if(!strcmp(argv[1], "--address-line-on"))
-		{
-			uint8_t value = atoi(argv[2]);
-			gAddressLines.Write(0x1 << value);
-		}
-		else if(!strcmp(argv[1], "--address-line-off"))
-		{
-			gAddressLines.Write(0);
-		}
-		else if(!strcmp(argv[1], "--data-line-on"))
-		{
-			uint8_t value = atoi(argv[2]);
-			gDataLines.Write(0x1 << value);
-		}
-	}
-	else if(argc > 1)
-	{
-		if(!strcmp(argv[1], "--on"))
-		{
-			gAddressLines.Write(65535);
-			gDataLines.Write(0xFF);
-			gWriteEnable.Write(1);
-		}
-		else if(!strcmp(argv[1], "--off"))
-		{
-			gAddressLines.Write(0);
-			gDataLines.Write(0);
-			gWriteEnable.Write(0);
-		}
-		else if(!strcmp(argv[1], "--hiz"))
-		{
-			gAddressLines.HiZ();
-			gDataLines.HiZ();
-			gWriteEnable.HiZ();
-		}
-		else if (!strcmp(argv[1], "--read") || !strcmp(argv[1], "--write"))
-		{
-			//11-3-2025: Reading and writing is stable. I put the reset line on a gpio port, set it to low until you insert the game,
-			//then set it high, read/write, then set it low and tell you to remove it. This ensures that the game uses the battery until its 
-			//actually time to read/write, and avoids power fluctuations that alter sram state on insertion/removal.
-			//I tested:
-			//SWM - Insert, read, remove, insert, read: identical
-			//FF2 - Insert, WRITE, remove, play in snes, read, remove, insert in SNES, remove, read, remove, read.
-			//		In this instance, it remained identical through and through except for the times i put it in the snes, and then two bytes 
-			//		changed at address  16A3-16A4. But when i just removed/inserted/removed/inserted (no snes) it remained binary identical.
-			//		its clear that these bytes are being changed by the game.
-			// where we stand:
-			// lines 0-14 are address lines 
-			// lines 0-7 are data lines 
-			// write line 
-			// reset line
-			// all otheres are hardwired.
-			// the trick is the write line and reset lines must be high and low respectively when inserting/removing the cart.
-			// also, LEDs do drain power and further hurt data integrity.
-			gAddressLines.HiZ();
-			gDataLines.HiZ();
-			usleep(10);
-			
-			gWriteEnable.Write(1);
-			usleep(10);
-			
-			gReset.Write(0);
-			usleep(10);
-			
-			bool bReading = true;
-			if(!strcmp(argv[1], "--write"))			
-			{
-				bReading = false;
-			}
-			
-			printf("Preparing to: %s - Insert game and press any key.\n", bReading ? "READ" : "WRITE");
-			while(!getchar())
-			{
-			}
-			
-			gReset.Write(1);
-			usleep(10);
-			
-			uint32_t ff2Size = 8192;
-			uint32_t smwSize = 1024;
-			
-			if(bReading)
-			{
-				ReadSRAM(ff2Size);
-			}
-			else
-			{
-				WriteSRAM(ff2Size);
-			}
-			
-			// Wrap Up
-			gWriteEnable.Write(1);
-			usleep(10);
-			
-			gReset.Write(0);
-			usleep(10);
-			
-			gAddressLines.HiZ();
-			gDataLines.HiZ();
-			usleep(10);
-			
-			printf("REMOVE CARTRIDGE NOW. Then press any key to exit.\n");
-			while(!getchar())
-			{
-			}
+			RunMain(argv[2]);
 		}
 		else
 		{
-			LOG("Unknown arg. Did you forget a value for the arg?");
+			printf("Not enough args for '--game'. Expected '--game [gamename]'\n");
 		}
 	}
+	// Random Unit Test stuff
 	else
-	{		 
-		LOG("No args provided. Maybe you wanted --read or --write?");
+	{
+		if(argc > 2)
+		{
+			if(!strcmp(argv[1], "--game"))
+			{
+				RunMain(argv[2]);
+			}
+			else if(!strcmp(argv[1], "--data"))
+			{
+				uint8_t value = atoi(argv[2]);
+				gDataLines.Write(value % 256);
+			}
+			else if(!strcmp(argv[1], "--write"))
+			{
+				uint8_t value = atoi(argv[2]);
+				gWriteEnable.Write(value % 2);
+			}
+			else if(!strcmp(argv[1], "--address-line-on"))
+			{
+				uint8_t value = atoi(argv[2]);
+				gAddressLines.Write(0x1 << value);
+			}
+			else if(!strcmp(argv[1], "--address-line-on"))
+			{
+				uint8_t value = atoi(argv[2]);
+				gAddressLines.Write(0x1 << value);
+			}
+			else if(!strcmp(argv[1], "--address-line-off"))
+			{
+				gAddressLines.Write(0);
+			}
+			else if(!strcmp(argv[1], "--data-line-on"))
+			{
+				uint8_t value = atoi(argv[2]);
+				gDataLines.Write(0x1 << value);
+			}
+		}
+		else if(argc > 1)
+		{
+			if(!strcmp(argv[1], "--on"))
+			{
+				gAddressLines.Write(65535);
+				gDataLines.Write(0xFF);
+				gWriteEnable.Write(1);
+			}
+			else if(!strcmp(argv[1], "--off"))
+			{
+				gAddressLines.Write(0);
+				gDataLines.Write(0);
+				gWriteEnable.Write(0);
+			}
+			else if(!strcmp(argv[1], "--hiz"))
+			{
+				gAddressLines.HiZ();
+				gDataLines.HiZ();
+				gWriteEnable.HiZ();
+			}
+			else if (!strcmp(argv[1], "--read") || !strcmp(argv[1], "--write"))
+			{
+				
+			}
+			else
+			{
+				LOG("Unknown arg. Did you forget a value for the arg?");
+			}
+		}
 	}
+	//
 	
 	gAddressLines.Release();
 	gDataLines.Release();
