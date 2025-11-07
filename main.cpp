@@ -310,7 +310,6 @@ public:
 			uint8_t lineVal = mLines[i].Read();
 			
 			value |= ((lineVal != 0 ? 0x1 : 0) << i);
-			//printf("lineVal %d is %d\n", i, lineVal);
 		}
 		
 		return value;
@@ -416,13 +415,12 @@ void WriteReadRAMTest()
 void WriteSRAM(RomInfo* pRomInfo)
 {
 	char sramFileName[300] = { 0 };
-	snprintf(sramFileName, sizeof(sramFileName) - 1, "./%s-sram.srm", pRomInfo->mRomName);
+	snprintf(sramFileName, sizeof(sramFileName) - 1, "./%s.srm", pRomInfo->mRomName);
 		
 	FILE* pFile = fopen(sramFileName, "rb");
 	if(pFile)
 	{
-		printf("WriteSRAM: Read contents from file '%s'\n", sramFileName);
-		fread(gSRAMBuffer, sizeof(gSRAMBuffer), 1, pFile);
+		fread(gSRAMBuffer, pRomInfo->mSRAMSize, 1, pFile);
 		
 		fclose(pFile);
 		pFile = NULL;
@@ -433,7 +431,6 @@ void WriteSRAM(RomInfo* pRomInfo)
 		return;
 	}
 	
-	printf("Writing SRAM for '%s', size '%d'\n", pRomInfo->mRomName, pRomInfo->mSRAMSize);
 	usleep(1);
 	for(uint32_t i = 0; i < pRomInfo->mSRAMSize; i++ )
 	{
@@ -461,11 +458,12 @@ void WriteSRAM(RomInfo* pRomInfo)
 		 gDataLines.HiZ();
 		 usleep(10);
 	}
+	
+	printf("WriteSRAM: Uploaded contents of file '%s' to Cart SRAM\n", sramFileName);
 }
 
 void ReadSRAM(RomInfo* pRomInfo)
 {
-	printf("Reading SRAM for '%s', size '%d'\n", pRomInfo->mRomName, pRomInfo->mSRAMSize);
 	usleep(1);
 	for(uint32_t i = 0; i < pRomInfo->mSRAMSize; i++ )
 	{
@@ -481,19 +479,20 @@ void ReadSRAM(RomInfo* pRomInfo)
 		 uint8_t value = gDataLines.Read();
 		 usleep(10);
 		 gSRAMBuffer[i] = value;
+		 printf("%x: %x\n", address, value);
 		 
 		 gDataLines.HiZ();
 		 usleep(10);
 	}
 	
 	char sramFileName[300] = { 0 };
-	snprintf(sramFileName, sizeof(sramFileName) - 1, "./%s-sram.srm", pRomInfo->mRomName);
+	snprintf(sramFileName, sizeof(sramFileName) - 1, "./%s.srm", pRomInfo->mRomName);
 	
 	FILE* pFile = fopen(sramFileName, "wb");
 	if(pFile)
 	{
 		printf("ReadSRAM: Wrote contents to file '%s'\n", sramFileName);
-		fwrite(gSRAMBuffer, sizeof(gSRAMBuffer), 1, pFile);
+		fwrite(gSRAMBuffer, pRomInfo->mSRAMSize, 1, pFile);
 		
 		fclose(pFile);
 		pFile = NULL;
