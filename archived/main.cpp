@@ -318,91 +318,11 @@ public:
 private:
 	GPIOLine mLines[NumLines];
 };
-
-template<int NumLines>
-class GPIOAddressArray
-{
-public:
-	~GPIOAddressArray()
-	{
-		Release();
-	}
-	
-	void Create(gpiod_chip* pChip, uint8_t* pGPIOVals, uint8_t latchVal)
-	{
-		if(!pChip)
-		{
-			LOG("Invalid chip passed!");
-			return;
-		}
-		
-		for(uint32_t i = 0; i < NumLines; i++)
-		{
-			mLines[i].Create(pChip, pGPIOVals[i]);
-		}
-		
-		mLatch.Create(pChip, latchVal);
-	}
-	
-	void Release()
-	{
-		mLatch.Release();
-		
-		for(uint32_t i = 0; i < NumLines; i++)
-		{
-			mLines[i].Release();
-		}
-	}
-	
-	void HiZ()
-	{
-		for(int32_t i = 0; i < NumLines; i++)
-		{
-			mLines[i].HiZ();
-		}
-	}
-	
-	void SetAddress(uint32_t value)
-	{
-		uint8_t lowVals = value & 0x00FF;
-		uint8_t highVals = (value & 0xFF00) >> 8;
-		
-		printf("requesting address: %d, low: %d, high: %d\n", value, lowVals, highVals);
-		
-		// prepare the latch 
-		mLatch.Write(0);
-		usleep(10);
-		
-		// set the low values
-		for(int32_t i = 0; i < NumLines; i++)
-		{
-			printf("Set low value bit %d: %d\n", i, (lowVals >> i) & 0x1);
-			mLines[i].Write((lowVals >> i) & 0x1);
-		}
-		
-		// set the latch 
-		mLatch.Write(1);
-		
-		// set the high values
-		for(int32_t i = 0; i < NumLines; i++)
-		{
-			printf("Set high value bit %d: %d\n", i, (highVals >> i) & 0x1);
-			mLines[i].Write((highVals >> i) & 0x1);
-		}
-	}
-	
-private:
-	GPIOLine mLines[NumLines];
-	GPIOLine mLatch;
-};
 //
 
 //jhm 11-3 gpio21 IS NO LONGER ADDRESS LINE 15 IT IS RESET PIN.
-//,5,6,13,19,26,16,20
-uint8_t gAddressLineIndices[] = {2,3,4,17,27,22,10,9};
-//GPIOLineArray<8> gAddressLines;
-uint8_t gLatch8Thru15LineIndex = 5;
-GPIOAddressArray<8> gAddressLines;
+uint8_t gAddressLineIndices[] = {2,3,4,17,27,22,10,9,5,6,13,19,26,16,20};
+GPIOLineArray<15> gAddressLines;
 
 uint8_t gDataLineIndices[] = {14,15,18,23,24,25,8,7};
 GPIOLineArray<8> gDataLines;
@@ -435,7 +355,7 @@ void WriteReadRAMTest()
 		 usleep(10);
 		
 		 printf("Setting address 0%x\n", address);
-		 gAddressLines.SetAddress(address);
+		 gAddressLines.Write(address);
 		 usleep(10);
 		 
 		 LOG("Setting write enable low");
@@ -466,7 +386,7 @@ void WriteReadRAMTest()
 		 usleep(10);
 		
 		 printf("Setting address 0%x\n", address);
-		 gAddressLines.SetAddress(address);
+		 gAddressLines.Write(address);
 		 usleep(10);
 		 
 		 LOG("Setting data hiZ");
@@ -522,7 +442,7 @@ void WriteSRAM(RomInfo* pRomInfo)
 		 gDataLines.HiZ();
 		 usleep(10);
 		
-		 gAddressLines.SetAddress(address);
+		 gAddressLines.Write(address);
 		 usleep(10);
 		 
 		 gWriteEnable.Write(0);
@@ -550,7 +470,7 @@ void ReadSRAM(RomInfo* pRomInfo)
 		uint32_t address = i;
 		
 		 // read
-		 gAddressLines.SetAddress(address);
+		 gAddressLines.Write(address);
 		 usleep(10);
 		 
 		 gDataLines.HiZ();
@@ -704,7 +624,7 @@ int main(int argc, const char** argv)
 	}
 	
 	// setup bus lines
-	gAddressLines.Create(pChip, gAddressLineIndices, gLatch8Thru15LineIndex);
+	gAddressLines.Create(pChip, gAddressLineIndices);
 	gDataLines.Create(pChip, gDataLineIndices);
 	gWriteEnable.Create(pChip, gWriteLineIndices);
 	gReset.Create(pChip, gResetLineIndices);
@@ -739,21 +659,19 @@ int main(int argc, const char** argv)
 				uint8_t value = atoi(argv[2]);
 				gWriteEnable.Write(value % 2);
 			}
-			else if(!strcmp(argv[1], "--address"))
+			else if(!strcmp(argv[1], "--address-line-on"))
 			{
-				uint16_t value = atoi(argv[2]);
-				gAddressLines.SetAddress(value);
-				
-				printf("Set address to %x\n", value);
+				uint8_t value = atoi(argv[2]);
+				gAddressLines.Write(0x1 << value);
 			}
 			else if(!strcmp(argv[1], "--address-line-on"))
 			{
 				uint8_t value = atoi(argv[2]);
-				gAddressLines.SetAddress(0x1 << value);
+				gAddressLines.Write(0x1 << value);
 			}
 			else if(!strcmp(argv[1], "--address-line-off"))
 			{
-				gAddressLines.SetAddress(0);
+				gAddressLines.Write(0);
 			}
 			else if(!strcmp(argv[1], "--data-line-on"))
 			{
@@ -765,13 +683,13 @@ int main(int argc, const char** argv)
 		{
 			if(!strcmp(argv[1], "--on"))
 			{
-				gAddressLines.SetAddress(65535);
+				gAddressLines.Write(65535);
 				gDataLines.Write(0xFF);
 				gWriteEnable.Write(1);
 			}
 			else if(!strcmp(argv[1], "--off"))
 			{
-				gAddressLines.SetAddress(0);
+				gAddressLines.Write(0);
 				gDataLines.Write(0);
 				gWriteEnable.Write(0);
 			}
@@ -780,6 +698,10 @@ int main(int argc, const char** argv)
 				gAddressLines.HiZ();
 				gDataLines.HiZ();
 				gWriteEnable.HiZ();
+			}
+			else if (!strcmp(argv[1], "--read") || !strcmp(argv[1], "--write"))
+			{
+				
 			}
 			else
 			{
