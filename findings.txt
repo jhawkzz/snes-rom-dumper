@@ -1,0 +1,3 @@
+Confirmed GPIO outputs 3.3v
+found that my ground from the gpio ground wasn't hooked up.
+now i get all FFs and then 00s

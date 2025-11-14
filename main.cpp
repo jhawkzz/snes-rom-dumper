@@ -356,6 +356,21 @@ public:
 	
 	void HiZ()
 	{
+		// prepare the latch 
+		mLatch.Write(1);
+		usleep(10);
+		
+		// set the low values
+		for(int32_t i = 0; i < NumLines; i++)
+		{
+			mLines[i].HiZ();
+		}
+		
+		// prepare the latch 
+		mLatch.Write(0);
+		usleep(10);
+		
+		// set the high values
 		for(int32_t i = 0; i < NumLines; i++)
 		{
 			mLines[i].HiZ();
@@ -367,26 +382,27 @@ public:
 		uint8_t lowVals = value & 0x00FF;
 		uint8_t highVals = (value & 0xFF00) >> 8;
 		
-		printf("requesting address: %d, low: %d, high: %d\n", value, lowVals, highVals);
+		//printf("requesting address: %d, low: %d, high: %d\n", value, lowVals, highVals);
 		
 		// prepare the latch 
-		mLatch.Write(0);
+		mLatch.Write(1);
 		usleep(10);
 		
 		// set the low values
 		for(int32_t i = 0; i < NumLines; i++)
 		{
-			printf("Set low value bit %d: %d\n", i, (lowVals >> i) & 0x1);
+			//printf("Set low value bit %d: %d\n", i, (lowVals >> i) & 0x1);
 			mLines[i].Write((lowVals >> i) & 0x1);
 		}
 		
 		// set the latch 
-		mLatch.Write(1);
+		mLatch.Write(0);
+		usleep(10);
 		
 		// set the high values
 		for(int32_t i = 0; i < NumLines; i++)
 		{
-			printf("Set high value bit %d: %d\n", i, (highVals >> i) & 0x1);
+			//printf("Set high value bit %d: %d\n", i, (highVals >> i) & 0x1);
 			mLines[i].Write((highVals >> i) & 0x1);
 		}
 	}
