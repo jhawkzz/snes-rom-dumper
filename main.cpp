@@ -319,7 +319,7 @@ private:
 	GPIOLine mLines[NumLines];
 };
 
-template<int NumLines>
+template<int NumLines, int NumBankLines>
 class GPIOAddressArray
 {
 public:
@@ -328,7 +328,7 @@ public:
 		Release();
 	}
 	
-	void Create(gpiod_chip* pChip, uint8_t* pGPIOVals, uint8_t latchVal)
+	void Create(gpiod_chip* pChip, uint8_t* pGPIOVals, uint8_t latchVal, uint8_t* pBankGPIOVals, uint8_t bankLatchVal)
 	{
 		if(!pChip)
 		{
@@ -341,12 +341,24 @@ public:
 			mLines[i].Create(pChip, pGPIOVals[i]);
 		}
 		
+		for(uint32_t i = 0; i < NumBankLines; i++)
+		{
+			mBankLines[i].Create(pChip, pBankGPIOVals[i]);
+		}
+		
 		mLatch.Create(pChip, latchVal);
+		mBankLatch.Create(pChip, bankLatchVal);
 	}
 	
 	void Release()
 	{
+		mBankLatch.Release();
 		mLatch.Release();
+		
+		for(uint32_t i = 0; i < NumBankLines; i++)
+		{
+			mBankLines[i].Release();
+		}
 		
 		for(uint32_t i = 0; i < NumLines; i++)
 		{
@@ -375,14 +387,38 @@ public:
 		{
 			mLines[i].HiZ();
 		}
+		
+		
+		// prepare the latch 
+		mBankLatch.Write(1);
+		usleep(10);
+		
+		// set the low values
+		for(int32_t i = 0; i < NumBankLines; i++)
+		{
+			mBankLines[i].HiZ();
+		}
+		
+		// prepare the latch 
+		mBankLatch.Write(0);
+		usleep(10);
+		
+		// set the high values
+		for(int32_t i = 0; i < NumBankLines; i++)
+		{
+			mBankLines[i].HiZ();
+		}
 	}
 	
 	void SetAddress(uint32_t value)
 	{
 		uint8_t lowVals = value & 0x00FF;
 		uint8_t highVals = (value & 0xFF00) >> 8;
+		uint8_t bankVals = (value & 0xFF0000) >> 16;
 		
 		//printf("requesting address: %d, low: %d, high: %d\n", value, lowVals, highVals);
+		
+		// SET ADDRESS LINES
 		
 		// prepare the latch 
 		mLatch.Write(1);
@@ -405,20 +441,52 @@ public:
 			//printf("Set high value bit %d: %d\n", i, (highVals >> i) & 0x1);
 			mLines[i].Write((highVals >> i) & 0x1);
 		}
+		
+		
+		// SET BANK LINES
+		uint8_t lowBankVals = bankVals & 0xF;
+		uint8_t highBankVals = (bankVals & 0xF0) >> 4;
+		
+		// prepare the bank latch 
+		mBankLatch.Write(1);
+		usleep(10);
+		
+		// set the low values
+		for(int32_t i = 0; i < NumBankLines; i++)
+		{
+			mBankLines[i].Write((lowBankVals >> i) & 0x1);
+		}
+		
+		// set the latch
+		mBankLatch.Write(0);
+		usleep(10);
+		
+		// set the high values 
+		for(int32_t i = 0; i < NumBankLines; i++)
+		{
+			mBankLines[i].Write((highBankVals >> i) & 0x1);
+		}
 	}
 	
 private:
 	GPIOLine mLines[NumLines];
+	GPIOLine mBankLines[NumBankLines];
 	GPIOLine mLatch;
+	GPIOLine mBankLatch;
 };
 //
 
-//jhm 11-3 gpio21 IS NO LONGER ADDRESS LINE 15 IT IS RESET PIN.
-//,5,6,13,19,26,16,20
+// Controls address lines A0 - A15 with support of a latch and A16-A23 (Bank Addresses BA0-BA7) with another latch.
 uint8_t gAddressLineIndices[] = {2,3,4,17,27,22,10,9};
-//GPIOLineArray<8> gAddressLines;
+uint8_t gBankAddressBusIndices[] = {6,13,19,26};
 uint8_t gLatch8Thru15LineIndex = 5;
-GPIOAddressArray<8> gAddressLines;
+uint8_t gLatch16Thru19Index = 16;
+GPIOAddressArray<8,4> gAddressLines;
+
+// controls bank address lines BA0 - BA7 (A16-A23) with support of a latch
+
+//uint8_t gLatch16Thru19Index = 16;
+//GPIOAddressArray<4> gBankAddressBus;
 
 uint8_t gDataLineIndices[] = {14,15,18,23,24,25,8,7};
 GPIOLineArray<8> gDataLines;
@@ -428,6 +496,10 @@ GPIOLineArray<1> gWriteEnable;
 
 uint8_t gResetLineIndices[] = {21};
 GPIOLineArray<1> gReset;
+
+uint8_t gCartEnableLineIndices[] = {20};
+GPIOLineArray<1> gCartEnable;
+
 
 uint8_t gSRAMBuffer[65536] = {0};
 
@@ -528,7 +600,7 @@ void WriteSRAM(RomInfo* pRomInfo)
 	}
 	
 	usleep(1);
-	for(uint32_t i = 0; i < pRomInfo->mSRAMSize; i++ )
+	for(uint32_t i = 0x700000; i < 0x700000 + pRomInfo->mSRAMSize; i++ )
 	{
 		uint32_t address = i;
 		
@@ -537,8 +609,14 @@ void WriteSRAM(RomInfo* pRomInfo)
 		 
 		 gDataLines.HiZ();
 		 usleep(10);
+		 
+		 gCartEnable.Write(1);
+		 usleep(10);
 		
 		 gAddressLines.SetAddress(address);
+		 usleep(10);
+		 
+		 gCartEnable.Write(0);
 		 usleep(10);
 		 
 		 gWriteEnable.Write(0);
@@ -561,15 +639,22 @@ void WriteSRAM(RomInfo* pRomInfo)
 void ReadSRAM(RomInfo* pRomInfo)
 {
 	usleep(1);
-	for(uint32_t i = 0; i < pRomInfo->mSRAMSize; i++ )
+	for(uint32_t i = 0x700000; i < 0x700000 + pRomInfo->mSRAMSize; i++ )
 	{
 		uint32_t address = i;
+		
+		// disable cart output
+		gCartEnable.Write(1);
+		usleep(10);
 		
 		 // read
 		 gAddressLines.SetAddress(address);
 		 usleep(10);
 		 
 		 gDataLines.HiZ();
+		 usleep(10);
+		 
+		 gCartEnable.Write(0);
 		 usleep(10);
 		
 		 uint8_t value = gDataLines.Read();
@@ -599,6 +684,111 @@ void ReadSRAM(RomInfo* pRomInfo)
 	}
 }
 
+//todo: reading a single bank (0 - 32768) for smw worked!!!! now im trying to read all its banks, but 
+// a little confused on loRom banking. see https://snes.nesdev.org/wiki/Memory_map
+char gRomBuffer[1024 * 1024 * 10]; //ten megs, whatever.
+
+// this perfectly reads SMW consistently, and is binary identical to known dumps. But doesn't work for Pushover.
+/*void DumpROM(RomInfo* pRomInfo)
+{
+	uint32_t lowRomNumBanks = 16;
+	uint32_t lowRomBankSize = 32768;
+	
+	// try reading the banks!
+	usleep(1);
+	for(uint32_t c = 0; c < lowRomNumBanks; c++ )
+	{
+		for(uint32_t i = 0; i < lowRomBankSize; i++ )
+		{
+			uint32_t address = (c << 16) | i;
+			
+			 // read
+			 gAddressLines.SetAddress(address);
+			 usleep(10);
+			 
+			 gDataLines.HiZ();
+			 usleep(10);
+			
+			 uint8_t value = gDataLines.Read();
+			 usleep(10);
+			 gRomBuffer[(c * lowRomBankSize) + i] = value;
+			 printf("%x: %x\n", address, value);
+			 
+			 gDataLines.HiZ();
+			 usleep(10);
+		}
+	
+	}
+	char romFileName[300] = { 0 };
+	snprintf(romFileName, sizeof(romFileName) - 1, "./%s.smc", pRomInfo->mRomName);
+	
+	FILE* pFile = fopen(romFileName, "wb");
+	if(pFile)
+	{
+		printf("DumpROM: Wrote contents to file '%s'\n", romFileName);
+		fwrite(gRomBuffer, lowRomNumBanks * lowRomBankSize, 1, pFile);
+		
+		fclose(pFile);
+		pFile = NULL;
+	}
+	else
+	{
+		printf("Failed to open file '%s' for write!\n", romFileName);
+	}
+}*/
+
+void DumpROM(RomInfo* pRomInfo)
+{
+	uint32_t lowRomNumBanks = 16;
+	uint32_t lowRomBankSize = 32768;
+	
+	uint32_t fullSize = lowRomNumBanks * lowRomBankSize;
+	
+	// try reading the banks!
+	usleep(1);
+	for(uint32_t i = 0; i < fullSize; i++ )
+	{
+		uint32_t address = i;
+		
+		gCartEnable.Write(1);
+		usleep(10);
+		
+		 // read
+		 gAddressLines.SetAddress(address);
+		 usleep(10);
+		 
+		 gDataLines.HiZ();
+		 usleep(10);
+		 
+		 gCartEnable.Write(0);
+		 usleep(10);
+		
+		 uint8_t value = gDataLines.Read();
+		 usleep(10);
+		 gRomBuffer[i] = value;
+		 printf("%x: %x\n", address, value);
+		 
+		 gDataLines.HiZ();
+		 usleep(10);
+	}
+	char romFileName[300] = { 0 };
+	snprintf(romFileName, sizeof(romFileName) - 1, "./%s.smc", pRomInfo->mRomName);
+	
+	FILE* pFile = fopen(romFileName, "wb");
+	if(pFile)
+	{
+		printf("DumpROM: Wrote contents to file '%s'\n", romFileName);
+		fwrite(gRomBuffer, fullSize, 1, pFile);
+		
+		fclose(pFile);
+		pFile = NULL;
+	}
+	else
+	{
+		printf("Failed to open file '%s' for write!\n", romFileName);
+	}
+}
+
 void RunMain(const char* pRomName)
 {
 	RomInfo* pRomInfo = GetRomInfo(pRomName);
@@ -613,6 +803,9 @@ void RunMain(const char* pRomName)
 	usleep(100);
 	
 	gReset.Write(0);
+	usleep(100);
+	
+	gCartEnable.Write(1);
 	usleep(100);
 	
 	gAddressLines.HiZ();
@@ -634,6 +827,7 @@ void RunMain(const char* pRomName)
 	{
 		printf("[R]ead from SRAM\n");
 		printf("[W]rite to SRAM\n");
+		printf("[D]ump ROM\n");
 		printf("E[x]it\n");
 		printf("Your Selection: ");
 
@@ -663,6 +857,12 @@ void RunMain(const char* pRomName)
 				break;
 			}
 			
+			case 'd':
+			{
+				DumpROM(pRomInfo);
+				break;
+			}
+			
 			case 'x':
 			{
 				shouldExit = true;
@@ -680,6 +880,9 @@ void RunMain(const char* pRomName)
 	
 	// Configure lines for removing cartridge
 	gWriteEnable.Write(1);
+	usleep(100);
+	
+	gCartEnable.Write(1);
 	usleep(100);
 	
 	gReset.Write(0);
@@ -720,10 +923,11 @@ int main(int argc, const char** argv)
 	}
 	
 	// setup bus lines
-	gAddressLines.Create(pChip, gAddressLineIndices, gLatch8Thru15LineIndex);
+	gAddressLines.Create(pChip, gAddressLineIndices, gLatch8Thru15LineIndex, gBankAddressBusIndices, gLatch16Thru19Index);
 	gDataLines.Create(pChip, gDataLineIndices);
 	gWriteEnable.Create(pChip, gWriteLineIndices);
 	gReset.Create(pChip, gResetLineIndices);
+	gCartEnable.Create(pChip, gCartEnableLineIndices);
 	
 	if(!strcmp(argv[1], "--game"))
 	{
@@ -807,6 +1011,7 @@ int main(int argc, const char** argv)
 	
 	gAddressLines.Release();
 	gDataLines.Release();
+	gCartEnable.Release();
 	gWriteEnable.Release();
 	gReset.Release();
 	

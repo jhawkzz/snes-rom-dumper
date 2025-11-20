@@ -1,3 +1,25 @@
+Mario Consistently dumps (twice now) and is out of the box binary identical to known rom dumps. It uses SHVC-1A1B-06
+Pushover's first 32kb is the same, then gets iffy. It uses SHVC-1A0N-10
+
+final latch:
+	16: orange
+	17: brown
+	18: blue
+	19: brown
+	20: green
+	21: white
+	22: yellow
+	23: green
+	
+	gpio6 -> A20 Green & Latch 1D to A16
+	gpio13 -> A21 White & Latch 2D to A17
+	gpio19 -> A22 Yellow & Latch 3D to A18 
+	gpio26 -> A23 Green & Latch 4D to A19
+	
+	gpio16 -> latch 2 enable
+	
+
+
 PI to SNES 62-Pin Mapping:
 ==========================
    3V3  (1) (2)  5V
