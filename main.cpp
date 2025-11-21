@@ -689,9 +689,9 @@ void ReadSRAM(RomInfo* pRomInfo)
 char gRomBuffer[1024 * 1024 * 10]; //ten megs, whatever.
 
 // this perfectly reads SMW consistently, and is binary identical to known dumps. But doesn't work for Pushover.
-/*void DumpROM(RomInfo* pRomInfo)
+void DumpROM(RomInfo* pRomInfo)
 {
-	uint32_t lowRomNumBanks = 16;
+	uint32_t lowRomNumBanks = 0xFF;
 	uint32_t lowRomBankSize = 32768;
 	
 	// try reading the banks!
@@ -702,20 +702,26 @@ char gRomBuffer[1024 * 1024 * 10]; //ten megs, whatever.
 		{
 			uint32_t address = (c << 16) | i;
 			
+			gCartEnable.Write(1);
+			usleep(2);
+			
 			 // read
 			 gAddressLines.SetAddress(address);
-			 usleep(10);
+			 usleep(2);
 			 
 			 gDataLines.HiZ();
-			 usleep(10);
+			 usleep(2);
+			 
+			 gCartEnable.Write(0);
+			 usleep(2);
 			
 			 uint8_t value = gDataLines.Read();
-			 usleep(10);
+			 usleep(2);
 			 gRomBuffer[(c * lowRomBankSize) + i] = value;
 			 printf("%x: %x\n", address, value);
 			 
 			 gDataLines.HiZ();
-			 usleep(10);
+			 usleep(2);
 		}
 	
 	}
@@ -735,8 +741,10 @@ char gRomBuffer[1024 * 1024 * 10]; //ten megs, whatever.
 	{
 		printf("Failed to open file '%s' for write!\n", romFileName);
 	}
-}*/
+}
 
+// this worked for pushover, except im reading too much of each bank
+/*
 void DumpROM(RomInfo* pRomInfo)
 {
 	uint32_t lowRomNumBanks = 16;
@@ -787,7 +795,7 @@ void DumpROM(RomInfo* pRomInfo)
 	{
 		printf("Failed to open file '%s' for write!\n", romFileName);
 	}
-}
+}*/
 
 void RunMain(const char* pRomName)
 {

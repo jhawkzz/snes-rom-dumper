@@ -1,5 +1,13 @@
-Mario Consistently dumps (twice now) and is out of the box binary identical to known rom dumps. It uses SHVC-1A1B-06
-Pushover's first 32kb is the same, then gets iffy. It uses SHVC-1A0N-10
+todo:
+	The hardware WORKS. Update my schematic.
+		I proved it by dumping SMW, Pushover, and Zelda (first half) and they all match.
+		
+	organize the code into a proper solution
+	
+	add ROM header reading to correctly read sram and ROM size.
+	
+	support hiROM and other weird carts
+
 
 final latch:
 	16: orange
